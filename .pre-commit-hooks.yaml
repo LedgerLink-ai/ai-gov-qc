@@ -38,13 +38,13 @@
   stages: [pre-commit]
   minimum_pre_commit_version: '3.2.0'
 
-- id: qa-commit-msg
-  name: 'qa: Conventional Commits and Assisted-by trailer'
-  description: Checks the commit message; adds the Assisted-by trailer from QA_ASSISTED_BY when it is missing.
-  entry: qa commit-msg --quiet
+- id: qa-prepare-commit-msg
+  name: 'qa: pre-fill ticket key and Assisted-by'
+  description: Pre-fills the ticket key from the branch name and the Assisted-by default (git config ledgerlink.assistedBy); converts AI Co-authored-by lines. Never rejects a commit.
+  entry: qa prepare-commit-msg
   language: node
   verbose: true
-  stages: [commit-msg]
+  stages: [prepare-commit-msg]
   minimum_pre_commit_version: '3.2.0'
 
 - id: qa-prepush

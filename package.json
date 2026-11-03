@@ -1,6 +1,6 @@
 {
   "name": "qc-workflows",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "LedgerLink QA harness: governance registries, the qa check engine and its front ends",
   "workspaces": [

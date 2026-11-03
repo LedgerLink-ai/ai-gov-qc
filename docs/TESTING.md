@@ -48,22 +48,20 @@ To see the exit code: in PowerShell run `$LASTEXITCODE`; in Git Bash run `echo $
 
 You can also edit files in the sandbox yourself, `git add` them inside `../sandbox/link_core`, and run `precommit` again. Only staged content is checked: edit a staged file without re-adding it, and the check still sees the staged version.
 
-## 3. Commit-message (trailer) check
+## 3. Commit messages: pre-fill and the trailer form
 
-Every sandbox also writes sample messages into `../sandbox/messages/`. This is the command the commit-msg hook will run:
+Every sandbox also writes sample messages into `../sandbox/messages/`. The prepare-commit-msg hook only pre-fills messages (see PRECOMMIT.md, "Commit messages"); the Assisted-by form is checked with:
 
 ```
-node packages/engine/bin/qa.js commit-msg ../sandbox/messages/msg-unregistered.txt --root ../sandbox/link_core --as-of 2027-01-08
+node packages/engine/bin/qa.js check --files README.md --root ../sandbox/link_core --commit-msg-file ../sandbox/messages/msg-malformed.txt
 ```
 
-| Message file               | Content                                    | Expected                                                                   |
-| -------------------------- | ------------------------------------------ | -------------------------------------------------------------------------- |
-| `msg-good.txt`             | `Assisted-by: Cursor, gpt-5, 1.7.0`        | PASS                                                                       |
-| `msg-unregistered.txt`     | `Assisted-by: Windsurf, swe-1, 1.12.0`     | `BLOCK`: tool not in the AI registry                                       |
-| `msg-malformed.txt`        | `Assisted-by: cursor/gpt-5` (the old form) | `BLOCK`: not in the form `<tool>, <model>, <version>`                      |
-| `msg-coauthor.txt`         | `Co-authored-by: Cursor Agent <…>` only    | `NOTE`: declared, but not via Assisted-by. PASS                            |
-| `msg-none.txt`             | no trailer                                 | PASS. No trailer is not a finding (P10); reconciliation checks this later. |
-| `msg-not-conventional.txt` | header `Added bounded retry`               | `BLOCK commit.conventional`                                                |
+| Message file        | Content                                    | Expected                                                                   |
+| ------------------- | ------------------------------------------ | -------------------------------------------------------------------------- |
+| `msg-good.txt`      | `Assisted-by: Cursor, gpt-5, 1.7.0`        | PASS                                                                       |
+| `msg-malformed.txt` | `Assisted-by: cursor/gpt-5` (the old form) | `REPORT commit.trailer`: not in the form `<tool>, <model>, <version>`      |
+| `msg-coauthor.txt`  | `Co-authored-by: Cursor Agent <…>` only    | `NOTE`: declared, but not via Assisted-by. PASS                            |
+| `msg-none.txt`      | no trailer                                 | PASS. No trailer is not a finding (P10); reconciliation checks this later. |
 
 ## 4. Baseline: existing findings report but do not block
 

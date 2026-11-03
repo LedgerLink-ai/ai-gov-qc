@@ -7,7 +7,7 @@ import { gitBranch, gitRangeCommits, gitRangeDiffStat } from '../src/sources';
 import type { PrInfo } from '../src/types';
 import { options } from './helpers';
 
-const GOOD = 'feat(payments): add refund key\n\nRefs: LL-1423\n';
+const GOOD = 'LD-480: Add refund key\n\nAssisted-by: Cursor, gpt-5, 1.7.0\n';
 
 const pr = (overrides: Partial<PrInfo> = {}): PrInfo => ({
   base: 'origin/develop',
@@ -26,7 +26,7 @@ async function prFindings(info: PrInfo) {
 describe('pull request checks (stage 3)', () => {
   it('pass a well-formed pull request', async () => {
     expect(await prFindings(pr())).toEqual([]);
-    expect(await prFindings(pr({ branch: 'chore/precommit-local-checks' }))).toEqual([]);
+    expect(await prFindings(pr({ branch: 'feature/LCORE-210-limit-invariants' }))).toEqual([]);
   });
 
   it('are skipped outside a pre-PR run', async () => {
@@ -35,21 +35,24 @@ describe('pull request checks (stage 3)', () => {
     expect(runs.every((r) => r.status === 'skipped' && /qa prepr/.test(r.reason ?? ''))).toBe(true);
   });
 
-  it('block a branch that breaks the naming rule, or the base branch itself', async () => {
-    expect(await prFindings(pr({ branch: 'my-changes' }))).toEqual([['pr.branch-name', 'branch-name', true]]);
-    expect(await prFindings(pr({ branch: 'develop' }))).toEqual([['pr.branch-name', 'base-branch', true]]);
+  it('report, without blocking, a branch with no ticket key or the base branch itself', async () => {
+    expect(await prFindings(pr({ branch: 'chore/precommit-local-checks' }))).toEqual([
+      ['pr.branch-name', 'no-ticket-key', false],
+    ]);
+    expect(await prFindings(pr({ branch: 'develop' }))).toEqual([['pr.branch-name', 'base-branch', false]]);
   });
 
-  it('check every commit message with the commit-msg rules', async () => {
+  it('check only the Assisted-by form of every commit, and report without blocking', async () => {
     const commits = [
       { sha: '1'.repeat(40), message: GOOD },
       { sha: '2'.repeat(40), message: 'wip\n' },
+      { sha: '3'.repeat(40), message: 'Fix retry\n\nAssisted-by: cursor/gpt-5\n' },
     ];
     const result = await run(options({}, { pr: pr({ commits }), stages: [3] }));
     const own = result.findings.filter((f) => f.checkId === 'pr.commits');
-    expect(own.map((f) => f.ruleId)).toEqual(['not-conventional', 'missing-ticket']);
-    expect(own[0].message).toMatch(/^Commit 2222222: /);
-    expect(result.exitCode).toBe(1);
+    expect(own.map((f) => [f.ruleId, f.blocking])).toEqual([['malformed', false]]);
+    expect(own[0].message).toMatch(/^Commit 3333333: /);
+    expect(result.exitCode).toBe(0);
   });
 
   it('report a large pull request, without counting lockfiles', async () => {

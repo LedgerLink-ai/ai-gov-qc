@@ -29,10 +29,10 @@ Any of these works; developers then run `npm install -g <location>` and `qa setu
 
 | Host                  | Developers install with                                                                                 | Notes                                                                                               |
 | --------------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| A shared drive        | `npm install -g \\server\share\ledgerlink-qa-0.1.0.tgz` (or the macOS/Linux mount path)                 | Simplest; publish the `.sha256` next to it                                                          |
-| A GitHub release      | `npm install -g https://github.com/<org>/qc-workflows/releases/download/v0.1.0/ledgerlink-qa-0.1.0.tgz` | What `.github/workflows/release.yml` makes; private repositories need a download with a token first |
-| AWS CodeArtifact      | `npm install -g @ledgerlink/qa@0.1.0` after `aws codeartifact login --tool npm …`                       | Same registry as `@ledgerlink/link-sdk`; the release workflow has the step, commented out           |
-| GitHub Packages (npm) | `npm install -g @ledgerlink/qa@0.1.0` with an `.npmrc` for the `@ledgerlink` scope                      | Needs the GitHub organisation                                                                       |
+| A shared drive        | `npm install -g \\server\share\ledgerlink-qa-0.2.0.tgz` (or the macOS/Linux mount path)                 | Simplest; publish the `.sha256` next to it                                                          |
+| A GitHub release      | `npm install -g https://github.com/<org>/qc-workflows/releases/download/v0.2.0/ledgerlink-qa-0.2.0.tgz` | What `.github/workflows/release.yml` makes; private repositories need a download with a token first |
+| AWS CodeArtifact      | `npm install -g @ledgerlink/qa@0.2.0` after `aws codeartifact login --tool npm …`                       | Same registry as `@ledgerlink/link-sdk`; the release workflow has the step, commented out           |
+| GitHub Packages (npm) | `npm install -g @ledgerlink/qa@0.2.0` with an `.npmrc` for the `@ledgerlink` scope                      | Needs the GitHub organisation                                                                       |
 
 ## Releasing
 
@@ -50,13 +50,15 @@ The release workflow first runs `ci.yml`, which on Windows, macOS and Linux:
 
 It then tags `v<version>` and attaches the `.tgz` and its SHA-256 to a GitHub release. Actions are pinned to commit SHAs.
 
+**A path to the file must be absolute or start with `./`.** npm reads `out/ledgerlink-qa-0.2.0.tgz` as a GitHub `owner/repo` and fails with `Permission denied (publickey)`.
+
 **Every published package needs a new version.** npm caches packages by name and version, so a rebuilt `0.1.0` is not picked up by machines that installed `0.1.0` before.
 
 ## Trying it locally
 
 ```bash
 npm run package
-npm install -g --prefix <empty folder> out/ledgerlink-qa-0.1.0.tgz --offline
+npm install -g --prefix <empty folder> ./out/ledgerlink-qa-0.2.0.tgz --offline
 <empty folder>/qa setup --home <another folder> --no-git-template
 ```
 
@@ -69,8 +71,8 @@ To remove an installation: `npm uninstall -g @ledgerlink/qa`, delete `~/.ledgerl
 - **Package:** built at 512 KB. It installed with `npm install -g --offline` in 8 s, and `qa validate` used the bundled configuration.
 - **`qa setup`** in a throwaway folder installed pre-commit 4.7.0 and Semgrep 1.183.0 into the private environment. Gitleaks 8.30.1 was downloaded, SHA-256 checked and installed.
 - **Git template:** with a separate global git config, `qa setup` created the template. A new repository then had all three hooks with no `pre-commit install`:
-  - `update readme` was blocked.
-  - `chore(repo): add local checks` with `Refs: LL-1423` committed.
+  - (0.1.0, the commit-msg design) `update readme` was blocked and `chore(repo): add local checks` with `Refs: LL-1423` committed.
+  - (0.2.0) On branch `LCORE-210-limit-invariants` with a default set, `git commit -m "Add idempotency key to refund endpoint"` became `LCORE-210: Add idempotency key to refund endpoint` plus `Assisted-by: Cursor, gpt-5, 1.7.0`; with `--no-verify` a Cursor `Co-authored-by` line was still converted; amends and merges were left alone.
   - `qa doctor` showed READY.
   - With the config changed to require `0.2.0`, the hook stopped with the install command.
 - **Sandbox:** on the package, stage 1 committed, a staged secret was blocked, a type error was blocked at push, and the good and bad pre-PR branches passed and were blocked as expected.

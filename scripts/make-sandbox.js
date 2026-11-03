@@ -201,13 +201,13 @@ const SCENARIOS = {
     branch: 'feat/LL-1423-bounded-retry',
     commits: () => [
       {
-        message: 'feat(transaction): add bounded retry\n\nRefs: LL-1423\n',
+        message: 'LL-1423: Add bounded retry\n',
         files: {
           'src/transaction/backoff.ts': 'export const backoffMs = (attempt: number): number => 250 * 2 ** attempt;\n',
         },
       },
       {
-        message: 'test(transaction): cover the backoff\n\nRefs: LL-1423\nAssisted-by: Cursor, gpt-5, 1.7.0\n',
+        message: 'LL-1423: Cover the backoff\n\nAssisted-by: Cursor, gpt-5, 1.7.0\n',
         files: {
           'test/backoff.test.mjs': [
             "import test from 'node:test';",
@@ -224,11 +224,12 @@ const SCENARIOS = {
     ],
   },
   'pr-bad': {
-    about: 'Branch my-changes with a "wip" commit and 1,200 changed lines (pre-PR blocks)',
+    about:
+      'Branch my-changes with a "wip" commit, a malformed Assisted-by and 1,200 changed lines (pre-PR reports all three)',
     branch: 'my-changes',
     commits: () => [
       {
-        message: 'wip\n',
+        message: 'wip\n\nAssisted-by: cursor/gpt-5\n',
         files: {
           'src/transaction/rates.ts': Array.from({ length: 1200 }, (_, i) => `export const rate${i} = ${i};\n`).join(
             '',
@@ -247,17 +248,15 @@ const SCENARIOS = {
   },
 };
 
-// The documented format: header, blank line, Refs ticket, Assisted-by on AI-assisted commits.
+// The recommended form (Development Guideline Policy): "<TICKET>: <description>",
+// Assisted-by on AI-assisted commits. No subject format is enforced; the
+// prepare-commit-msg hook pre-fills the key and the trailer.
 const COMMIT_MESSAGES = {
-  'msg-good.txt': 'feat(transaction): add bounded retry\n\nRefs: LL-1423\nAssisted-by: Cursor, gpt-5, 1.7.0\n',
-  'msg-none.txt': 'feat(transaction): add bounded retry\n\nRefs: LL-1423\n',
-  'msg-unregistered.txt':
-    'feat(transaction): add bounded retry\n\nRefs: LL-1423\nAssisted-by: Windsurf, swe-1, 1.12.0\n',
-  'msg-malformed.txt': 'feat(transaction): add bounded retry\n\nRefs: LL-1423\nAssisted-by: cursor/gpt-5\n',
-  'msg-coauthor.txt':
-    'feat(transaction): add bounded retry\n\nRefs: LL-1423\nCo-authored-by: Cursor Agent <cursoragent@cursor.com>\n',
-  'msg-not-conventional.txt': 'Added bounded retry\n\nRefs: LL-1423\n',
-  'msg-no-ticket.txt': 'feat(transaction): add bounded retry\n',
+  'msg-good.txt': 'LL-1423: Add bounded retry\n\nAssisted-by: Cursor, gpt-5, 1.7.0\n',
+  'msg-none.txt': 'LL-1423: Add bounded retry\n',
+  'msg-no-key.txt': 'Add bounded retry\n',
+  'msg-malformed.txt': 'LL-1423: Add bounded retry\n\nAssisted-by: cursor/gpt-5\n',
+  'msg-coauthor.txt': 'LL-1423: Add bounded retry\n\nCo-authored-by: Cursor Agent <cursoragent@cursor.com>\n',
 };
 
 // ---- Helpers ----
@@ -342,7 +341,7 @@ function setup() {
   git(REPO, 'commit', '-q', '-m', 'chore: initial commit');
   git(REPO, 'push', '-q', '-u', 'origin', 'main');
 
-  console.log('4/5 Connecting the hooks: pre-commit install (pre-commit, commit-msg, pre-push)');
+  console.log('4/5 Connecting the hooks: pre-commit install (pre-commit, prepare-commit-msg, pre-push)');
   sh(REPO, 'pre-commit', ['install']);
   console.log('5/5 Building the hook environments: pre-commit install-hooks (first time: a few minutes)');
   sh(REPO, 'pre-commit', ['install-hooks']);
@@ -367,8 +366,10 @@ function refresh() {
     console.log(`The clone's hooks now run the rebuilt package (SHA-256 ${release.sha256.slice(0, 12)})`);
     return;
   }
-  git(REPO, 'commit', '-q', '--no-verify', '-m', `chore: update the qa hook configuration`, '-m', 'Refs: LL-1423');
+  git(REPO, 'commit', '-q', '--no-verify', '-m', 'LL-1423: Update the qa hook configuration');
   git(REPO, 'push', '-q', 'origin', 'main');
+  // Connects hook types the configuration added since setup (prepare-commit-msg).
+  sh(REPO, 'pre-commit', ['install']);
   sh(REPO, 'pre-commit', ['install-hooks']);
   console.log(`The clone's configuration and hooks now use the rebuilt package ${release.version}`);
 }

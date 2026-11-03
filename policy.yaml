@@ -21,9 +21,10 @@ local:
 # Pull request checks (stage 3), run by "qa prepr" before a pull request is
 # opened and by the PR gate.
 pr:
-  # "<TICKET-123>-<description>" (LD-475-rc-sync) or "<type>/<description>"
-  # (chore/precommit-local-checks).
-  branch_pattern: '^(?:[A-Z][A-Z0-9]+-\d+(?:[-_.][A-Za-z0-9._-]+)?|(?:feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert|hotfix|release)/[A-Za-z0-9._/-]+)$'
+  # A ticket key in the branch name (LCORE-210-limit-invariants), which the
+  # prepare-commit-msg hook copies into each commit message. Recommended, not
+  # required (Development Guideline Policy, "Commit messages and signing").
+  branch_pattern: '(?:^|/)[A-Z][A-Z0-9]+-\d+(?:$|[-_./])'
   diff_warn_lines: 400
   diff_max_lines: 1000
   diff_ignore: ['**/yarn.lock', '**/package-lock.json', '**/pnpm-lock.yaml', '**/*.snap']
@@ -53,22 +54,23 @@ checks:
   ai-config.mcp-allowlist:
     mode: report
     block_from: 2026-11-30
-  # The commit message format (AI Code Review implementation, section 2) is
-  # enforced from 2 Nov 2026, at commit time and on the pull request alike.
+  # Commit messages (AI Code Review implementation v2, section 2; Development
+  # Guideline Policy): no subject format is enforced, and nothing about the
+  # message blocks locally. The pull request's pr-rules job checks the
+  # Assisted-by trailer and is what blocks.
   commit.trailer:
-    mode: block
-  commit.conventional:
-    mode: block
+    mode: report
   sast.semgrep:
     mode: report
     block_from: 2026-11-16 # sast blocks from week 4
-  # Pull request checks. The commit rule is the commit-msg rule applied to
-  # every commit; a coverage threshold reports only in this phase (it would
-  # block repositories whose coverage does not exist yet).
+  # Pull request checks before a pull request is opened ("qa prepr"). They
+  # report only: the ticket key is recommended, not required; the trailer is
+  # blocked by the pull request's pr-rules job; a coverage threshold would
+  # block repositories whose coverage does not exist yet.
   pr.branch-name:
-    mode: block
+    mode: report
   pr.commits:
-    mode: block
+    mode: report
   pr.diff-size:
     mode: report
   tests.coverage:

@@ -37,7 +37,7 @@ export interface SetupOptions {
 }
 
 const GITLEAKS_RELEASES = 'https://github.com/gitleaks/gitleaks/releases/download';
-const HOOK_TYPES = ['pre-commit', 'commit-msg', 'pre-push'];
+const HOOK_TYPES = ['pre-commit', 'prepare-commit-msg', 'pre-push'];
 
 type Row = (status: 'ok' | 'WARN' | 'FAIL', name: string, detail: string) => void;
 
@@ -214,16 +214,25 @@ function setupGitTemplate(row: Row): boolean {
   const preCommit = toolBinary('pre-commit');
   if (current.ok && current.out) {
     const dir = current.out.replace(/^~(?=[\\/])/, process.env.USERPROFILE ?? process.env.HOME ?? '~');
-    const connected = HOOK_TYPES.every((h) => {
+    const byPreCommit = (h: string): boolean => {
       const f = join(dir, 'hooks', h);
       return existsSync(f) && readFileSync(f, 'utf8').includes('pre-commit');
-    });
-    if (connected) row('ok', 'git template', `${current.out} (already set up)`);
-    else
+    };
+    if (HOOK_TYPES.every(byPreCommit)) row('ok', 'git template', `${current.out} (already set up)`);
+    else if (byPreCommit('pre-commit')) {
+      // A template pre-commit made earlier, with an older hook list (commit-msg
+      // before prepare-commit-msg): bring it up to date.
+      const init = run(preCommit, ['init-templatedir', ...HOOK_TYPES.flatMap((h) => ['-t', h]), dir]);
+      row(
+        init.ok ? 'ok' : 'FAIL',
+        'git template',
+        init.ok ? `${current.out}: updated to ${HOOK_TYPES.join(', ')}` : init.out.slice(0, 300),
+      );
+    } else
       row(
         'WARN',
         'git template',
-        `init.templateDir is already ${current.out}; left as it is. To use it: pre-commit init-templatedir -t pre-commit -t commit-msg -t pre-push "${current.out}"`,
+        `init.templateDir is already ${current.out}; left as it is. To use it: pre-commit init-templatedir -t pre-commit -t prepare-commit-msg -t pre-push "${current.out}"`,
       );
     return true;
   }

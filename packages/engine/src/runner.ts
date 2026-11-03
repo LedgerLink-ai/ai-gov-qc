@@ -35,7 +35,7 @@ export interface RunOptions {
   pr?: PrInfo;
   /** Fingerprints from the repository's dated baseline (.qa/baseline.sarif). */
   baseline?: Set<string>;
-  /** Restrict the run to these scopes (the commit-msg hook runs only `commit`). */
+  /** Restrict the run to these scopes, e.g. only `commit` for a commit message. */
   scopes?: Scope[];
   /** Restrict the run to these stages (pre-commit runs 0 and 1, pre-push 2, pre-PR 0 to 3). */
   stages?: number[];

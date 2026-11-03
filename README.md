@@ -8,11 +8,11 @@ Design: `LedgerLink QA Harness Technical Design` V2.2. Build order: `qa-harness-
 
 ## Status (2 Nov 2026)
 
-**Local checks on the developer's machine** (AI Code Review implementation, section 2): done, in three checkpoints: pre-commit (with commit-msg), pre-push, and pre-PR (`pre-commit run --hook-stage manual --all-files`). Installed from one package that works on Windows, macOS and Linux: `npm install -g` the `.tgz`, then `qa setup` for pre-commit, Semgrep and Gitleaks ([docs/PACKAGE.md](docs/PACKAGE.md)). Setup and manual testing in [docs/PRECOMMIT.md](docs/PRECOMMIT.md). Added since 22 Oct:
+**Local checks on the developer's machine** (AI Code Review implementation, section 2): done, in three checkpoints: pre-commit (with prepare-commit-msg, which pre-fills the message), pre-push, and pre-PR (`pre-commit run --hook-stage manual --all-files`). Installed from one package that works on Windows, macOS and Linux: `npm install -g` the `.tgz`, then `qa setup` for pre-commit, Semgrep and Gitleaks ([docs/PACKAGE.md](docs/PACKAGE.md)). Setup and manual testing in [docs/PRECOMMIT.md](docs/PRECOMMIT.md). Added since 22 Oct:
 
 - `.pre-commit-hooks.yaml` and `templates/pre-commit-config.yaml`
 - Gitleaks rules for blockchain private keys and BIP39 mnemonics
-- `commit.conventional`
+- `qa prepare-commit-msg`: ticket key from the branch, Assisted-by default, AI Co-authored-by converted (no subject format enforced, since 3 Nov)
 - the `Assisted-by: <tool>, <model>, <version>` format
 - `sast.semgrep` at pre-push
 - `qa prepush` and `qa doctor`

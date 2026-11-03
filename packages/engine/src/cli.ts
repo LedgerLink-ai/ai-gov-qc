@@ -1,10 +1,10 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { TOOL_ADAPTERS } from './adapters/tools';
 import { versionIn } from './adapters/tools/workdir';
-import { declaredTrailers, parseTrailerValue, TRAILER, TRAILER_FORM } from './checks/commit-trailer';
+import { prepareMessage } from './prepare-message';
 import { loadConfig } from './config';
 import { runConformance, unavailableTools } from './conform';
 import { today } from './policy';
@@ -39,7 +39,6 @@ import {
   type CoverageSummary,
   type FileSource,
   type RunMode,
-  type Scope,
 } from './types';
 import { ENGINE_VERSION } from './version';
 
@@ -48,7 +47,10 @@ const USAGE = `qa ${ENGINE_VERSION} - LedgerLink QA check engine
 Usage:
   qa check      [selection] [options]   Run the checks on a set of changed files
   qa precommit  [options]               Stage 0-1 checks on the staged changes (the pre-commit hook)
-  qa commit-msg <file> [options]        Commit-message checks only (the commit-msg hook)
+  qa prepare-commit-msg <file> [<source>]
+                                        Pre-fill the message (the prepare-commit-msg hook): the ticket key from
+                                        the branch name, the Assisted-by default, AI Co-authored-by lines
+                                        converted to Assisted-by. Never rejects a commit
   qa prepush    [options]               Stage 2 checks (fast Semgrep) on the commits being pushed (the pre-push hook)
   qa prepr      [--base <ref>] [--coverage <files>] [options]
                                         Stage 0-3 checks on everything the pull request contains, plus its
@@ -107,7 +109,8 @@ Environment:
   QA_ACTOR              human | agent | ci, as --actor
   QA_AS_OF              as --as-of; set QA_AS_OF=2027-01-08 to try the hooks with every gate switched on
   QA_PR_BASE            qa prepr: the branch the pull request merges into (default: origin/HEAD)
-  QA_ASSISTED_BY        "<tool>, <model>, <version>": the commit-msg hook adds "${TRAILER}: <value>" when missing
+  QA_ASSISTED_BY        "<tool>, <model>, <version>": the Assisted-by default when git config
+                        ledgerlink.assistedBy is not set (git config --global ledgerlink.assistedBy "...")
   QA_HOME               Where "qa setup" installs the tools (default: ~/.ledgerlink-qa)
   QA_GITLEAKS_BIN, QA_SEMGREP_BIN, QA_PRE_COMMIT_BIN
                         Paths to the tools (default: the copies "qa setup" installed, else PATH)
@@ -366,32 +369,46 @@ async function prepr(flags: Flags): Promise<number> {
   return runAndReport(opts, flags);
 }
 
-/** Adds the Assisted-by trailer from QA_ASSISTED_BY when the message has none. */
-function addAssistedBy(file: string, root: string): void {
-  const value = process.env.QA_ASSISTED_BY?.trim();
-  if (!value || declaredTrailers(readFileSync(file, 'utf8')).length > 0) return;
-  if (!parseTrailerValue(value)) {
-    process.stderr.write(`qa: QA_ASSISTED_BY="${value}" is not "${TRAILER_FORM}"; no trailer added.\n`);
-    return;
-  }
-  execFileSync(
-    'git',
-    ['interpret-trailers', '--in-place', '--if-exists', 'doNothing', '--trailer', `${TRAILER}: ${value}`, file],
-    { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] },
-  );
-  print(`qa: added "${TRAILER}: ${value}" from QA_ASSISTED_BY`);
+/** The developer's Assisted-by default: git config ledgerlink.assistedBy, else $QA_ASSISTED_BY. */
+function assistedByDefault(root: string): string | undefined {
+  const res = spawnSync('git', ['config', '--get', 'ledgerlink.assistedBy'], { cwd: root, encoding: 'utf8' });
+  const fromGit = res.status === 0 ? res.stdout.trim() : '';
+  return fromGit || process.env.QA_ASSISTED_BY?.trim() || undefined;
 }
 
-async function commitMsg(positionals: string[], flags: Flags): Promise<number> {
-  const file = positionals[0];
-  if (!file) throw new UsageError('qa commit-msg needs the commit message file');
-  const root = rootOf(flags);
-  addAssistedBy(file, root);
-  const sel: Selection = { root, inGit: true, files: [], source: directorySource(root) };
-  const opts = runOptions({ ...flags, 'commit-msg-file': file }, sel, { scopes: ['commit'] as Scope[] });
-  const result = await run(opts);
-  if (!flags.quiet || worthShowing(result)) print(toText(result));
-  return result.exitCode;
+/**
+ * The prepare-commit-msg hook: pre-fills the ticket key and the Assisted-by
+ * trailer (prepare-message.ts). It never rejects a commit: anything that goes
+ * wrong is reported and the message is left as it was.
+ *
+ * git passes <file> [<source> [<sha>]]; pre-commit passes the file and puts
+ * the source in $PRE_COMMIT_COMMIT_MSG_SOURCE.
+ */
+function prepareCommitMsg(positionals: string[], flags: Flags): number {
+  const [file, sourceArg] = positionals;
+  if (!file) throw new UsageError('qa prepare-commit-msg needs the commit message file');
+  try {
+    const root = rootOf(flags);
+    let registry;
+    try {
+      registry = loadConfig(str(flags, 'config')).registry;
+    } catch {
+      registry = undefined; // the ticket key and the default still work without the registry
+    }
+    const message = readFileSync(file, 'utf8');
+    const result = prepareMessage({
+      message,
+      source: sourceArg ?? process.env.PRE_COMMIT_COMMIT_MSG_SOURCE ?? '',
+      branch: gitBranch(root),
+      assistedBy: assistedByDefault(root),
+      registry,
+    });
+    if (result.message !== message) writeFileSync(file, result.message);
+    for (const note of result.notes) print(`qa: ${note}`);
+  } catch (err) {
+    print(`qa: could not pre-fill the commit message (${(err as Error).message}); left as it was.`);
+  }
+  return 0;
 }
 
 async function baseline(flags: Flags): Promise<number> {
@@ -451,7 +468,7 @@ function commandVersion(cmd: string, args: string[]): string | undefined {
   return !res.error && res.status === 0 ? versionIn(`${res.stdout} ${res.stderr}`) : undefined;
 }
 
-const HOOK_TYPES = ['pre-commit', 'commit-msg', 'pre-push'] as const;
+const HOOK_TYPES = ['pre-commit', 'prepare-commit-msg', 'pre-push'] as const;
 
 const HUSKY_PATH = /(^|[\\/])\.husky([\\/]_)?[\\/]?$/;
 
@@ -470,7 +487,7 @@ function doctor(flags: Flags): number {
   const row = (status: 'ok' | 'WARN' | 'FAIL', name: string, detail: string): void => {
     if (status === 'FAIL') problems++;
     if (status === 'WARN') warnings++;
-    print(`  ${status.padEnd(4)}  ${name.padEnd(20)} ${detail}`);
+    print(`  ${status.padEnd(4)}  ${name.padEnd(24)} ${detail}`);
   };
   const tool = (name: string, installed: string | undefined, required: boolean, purpose: string): void => {
     const pin = pins[name];
@@ -741,7 +758,8 @@ export async function main(argv: string[]): Promise<number> {
           `qa: this repository needs qa ${required} (compatible versions); ${ENGINE_VERSION} is installed.\n` +
             `Install it: npm install -g @ledgerlink/qa@${required}  (or the .tgz from your team's release)\n`,
         );
-        return 2;
+        // The message hook never blocks a commit, not even for this.
+        return argv[0] === 'prepare-commit-msg' ? 0 : 2;
       }
     }
     // Everything after the package name belongs to the tool, not to qa.
@@ -757,8 +775,8 @@ export async function main(argv: string[]): Promise<number> {
         return await check(flags);
       case 'precommit':
         return await check(flags, 'staged', { stages: [0, 1] });
-      case 'commit-msg':
-        return await commitMsg(positionals, flags);
+      case 'prepare-commit-msg':
+        return prepareCommitMsg(positionals, flags);
       case 'prepush':
         return await prepush(flags);
       case 'prepr':

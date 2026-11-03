@@ -1,10 +1,11 @@
 import type { AiRegistry, CheckDefinition, Finding, RunContext, ToolEntry } from '../types';
 
 // C11-2 / R11-8: an AI-assisted commit names its tool, model and version in an
-// Assisted-by trailer (AI Code Review implementation, section 2), and the tool
-// and model are in the registry (R14-6). No trailer is not a finding: a commit
-// without one is declared as written without AI assistance (P10), and the
-// weekly reconciliation is the real check.
+// Assisted-by trailer (AI Code Review implementation, section 2). Only the
+// form is checked, as the pull request's pr-rules job does; whether the tool
+// is approved is not a commit-message rule. No trailer is not a finding: a
+// commit without one is declared as written without AI assistance (P10), and
+// the weekly reconciliation is the real check.
 
 export const TRAILER = 'Assisted-by';
 export const TRAILER_FORM = `${TRAILER}: <tool>, <model>, <version>`;
@@ -68,43 +69,12 @@ export function checkTrailers(checkId: string, message: string, registry: AiRegi
   });
 
   for (const value of declared) {
-    const parsed = parseTrailerValue(value);
-    if (!parsed) {
+    if (!parseTrailerValue(value)) {
       findings.push(
         error(
           'malformed',
           `"${TRAILER}: ${value}" is not in the form "${TRAILER_FORM}".`,
           `Write "${TRAILER_FORM}", e.g. "${TRAILER}: Cursor, gpt-5, 1.7.0".`,
-          value,
-        ),
-      );
-      continue;
-    }
-    const tool = findTool(registry, parsed.tool);
-    if (!tool) {
-      findings.push(
-        error(
-          'unregistered-tool',
-          `AI tool "${parsed.tool}" is not in the AI registry.`,
-          'Use an approved tool, or propose this one in registry/ai-registry.yaml (R14-6).',
-          value,
-        ),
-      );
-    } else if (tool.status === 'blocked' || tool.status === 'retired') {
-      findings.push(
-        error(
-          'tool-not-approved',
-          `AI tool "${tool.name}" is ${tool.status} in the AI registry.`,
-          'Use an approved tool.',
-          value,
-        ),
-      );
-    } else if (!tool.models.includes('*') && !tool.models.some((m) => m.toLowerCase() === parsed.model.toLowerCase())) {
-      findings.push(
-        error(
-          'model-not-approved',
-          `Model "${parsed.model}" is not approved for ${tool.name}.`,
-          `Approved models: ${tool.models.join(', ')}.`,
           value,
         ),
       );
@@ -121,7 +91,7 @@ export function checkTrailers(checkId: string, message: string, registry: AiRegi
         ruleId: 'co-author-only',
         level: 'note',
         message: `AI use is declared through a Co-authored-by line (${tool.name}) but not through ${TRAILER}.`,
-        fixHint: `Add "${TRAILER}: ${tool.name}, <model>, <version>"; set QA_ASSISTED_BY and the commit-msg hook adds it.`,
+        fixHint: `Add "${TRAILER}: ${tool.name}, <model>, <version>". The prepare-commit-msg hook converts these lines; set your default with: git config --global ledgerlink.assistedBy "<tool>, <model>, <version>".`,
         fingerprintBasis: `co-author:${tool.id}`,
       });
       break;

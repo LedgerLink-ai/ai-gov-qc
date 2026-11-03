@@ -1,0 +1,11 @@
+id: F06
+title: Assisted-by is checked for its form only; a tool outside the registry is accepted
+repo: link_core
+actor: human
+as_of: 2027-01-08
+commit_message: |
+  LCORE-212: Tidy quote formatting
+
+  Assisted-by: Windsurf, swe-1, 1.12.0
+exact: true
+expect: []

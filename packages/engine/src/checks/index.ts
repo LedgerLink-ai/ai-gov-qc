@@ -1,5 +1,4 @@
 import type { CheckDefinition, Finding, RunContext } from '../types';
-import { commitConventional } from './commit-conventional';
 import { commitTrailer } from './commit-trailer';
 import { contentLint } from './content-lint';
 import { mcpAllowlist } from './mcp-allowlist';
@@ -14,7 +13,6 @@ export const NATIVE_CHECKS: Record<string, NativeCheck> = {
   'ai-config.mcp-allowlist': mcpAllowlist,
   'paths.protected': protectedPaths,
   'commit.trailer': commitTrailer,
-  'commit.conventional': commitConventional,
   'pr.branch-name': prBranchName,
   'pr.commits': prCommits,
   'pr.diff-size': prDiffSize,

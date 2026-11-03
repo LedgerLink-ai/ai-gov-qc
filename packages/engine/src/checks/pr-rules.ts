@@ -1,6 +1,5 @@
 import { globMatcher } from '../tags';
 import type { CheckDefinition, Finding, PrPolicy, RunContext } from '../types';
-import { checkConventional } from './commit-conventional';
 import { checkTrailers } from './commit-trailer';
 
 // Checks on the pull request as a whole (stage 3): run by "qa prepr" before a
@@ -8,7 +7,7 @@ import { checkTrailers } from './commit-trailer';
 // section of policy.yaml.
 
 const DEFAULT_PR_POLICY: PrPolicy = {
-  branch_pattern: '^(?:[A-Z][A-Z0-9]+-\\d+(?:[-_.][A-Za-z0-9._-]+)?|[a-z]+/[A-Za-z0-9._/-]+)$',
+  branch_pattern: '(?:^|/)[A-Z][A-Z0-9]+-\\d+(?:$|[-_./])',
   diff_warn_lines: 400,
   diff_max_lines: 1000,
   diff_ignore: ['**/yarn.lock', '**/package-lock.json', '**/pnpm-lock.yaml', '**/*.snap'],
@@ -42,15 +41,22 @@ export function prBranchName(ctx: RunContext, def: CheckDefinition): Finding[] {
   const pattern = prPolicy(ctx).branch_pattern;
   if (new RegExp(pattern).test(branch)) return [];
   return [
-    finding(
-      'branch-name',
-      `Branch "${branch}" does not follow the naming rule.`,
-      'Name it "<TICKET-123>-<short-description>" (LD-480-refund-key) or "<type>/<short-description>" (feat/refund-key), as policy.yaml pr.branch_pattern sets; rename with: git branch -m <new-name>',
-    ),
+    {
+      ...finding(
+        'no-ticket-key',
+        `Branch "${branch}" has no ticket key, so commit messages are not pre-filled with one.`,
+        'Recommended, not required: name branches "<TICKET-123>-<short-description>", e.g. LCORE-210-limit-invariants; rename with: git branch -m <new-name>',
+      ),
+      level: 'warning',
+    },
   ];
 }
 
-/** Every commit in the pull request, with the same rules as the commit-msg hook. */
+/**
+ * The Assisted-by trailer of every commit in the pull request, for its form
+ * only (Development Guideline Policy: no subject format is enforced). The
+ * pull request's pr-rules job is what blocks.
+ */
 export function prCommits(ctx: RunContext, def: CheckDefinition): Finding[] {
   if (!ctx.pr) return [];
   if (ctx.pr.commits.length === 0)
@@ -67,15 +73,12 @@ export function prCommits(ctx: RunContext, def: CheckDefinition): Finding[] {
   const findings: Finding[] = [];
   for (const commit of ctx.pr.commits) {
     const short = commit.sha.slice(0, 7);
-    const own = [
-      ...checkConventional(def.id, commit.message),
-      ...checkTrailers(def.id, commit.message, ctx.config.registry),
-    ];
-    for (const f of own)
+    for (const f of checkTrailers(def.id, commit.message, ctx.config.registry))
       findings.push({
         ...f,
         message: `Commit ${short}: ${f.message}`,
-        fixHint: `${f.fixHint ?? ''} Reword it with "git rebase -i ${ctx.pr.base}" (mark it "reword").`.trim(),
+        fixHint:
+          `${f.fixHint ?? ''} Fix it before pushing: git commit --amend for the last commit, else "git rebase -i ${ctx.pr.base}" and mark it "reword".`.trim(),
         fingerprintBasis: `${commit.sha}:${f.fingerprintBasis ?? f.ruleId}`,
       });
   }

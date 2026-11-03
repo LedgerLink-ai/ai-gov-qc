@@ -64,7 +64,7 @@ function packageJson(version) {
 const README = (version) => `# ${NAME} ${version}
 
 LedgerLink's local checks for every repository: the \`qa\` command behind the
-pre-commit, commit-msg, pre-push and pre-PR hooks. Works on Windows, macOS and
+pre-commit, prepare-commit-msg, pre-push and pre-PR hooks. Works on Windows, macOS and
 Linux. Needs Node 20+, git and Python 3.9+.
 
 ## Install, once per machine

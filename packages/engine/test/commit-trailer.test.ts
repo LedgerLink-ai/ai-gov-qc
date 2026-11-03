@@ -61,10 +61,10 @@ describe('commit.trailer', () => {
     expect(rules('x\n\nAssisted-by: Cursor, gpt-5, latest\n')).toEqual(['malformed']);
   });
 
-  it('rejects unregistered, retired and unapproved-model trailers', () => {
-    expect(rules('x\n\nAssisted-by: Windsurf, swe-1, 1.12.0\n')).toEqual(['unregistered-tool']);
-    expect(rules('x\n\nAssisted-by: retired-tool, m, 1.0\n')).toEqual(['tool-not-approved']);
-    expect(rules('x\n\nAssisted-by: Claude Code, model-b, 2.0.0\n')).toEqual(['model-not-approved']);
+  it('checks the form only: tools and models outside the registry are accepted', () => {
+    expect(rules('x\n\nAssisted-by: Windsurf, swe-1, 1.12.0\n')).toEqual([]);
+    expect(rules('x\n\nAssisted-by: retired-tool, m, 1.0\n')).toEqual([]);
+    expect(rules('x\n\nAssisted-by: Claude Code, model-b, 2.0.0\n')).toEqual([]);
   });
 
   it('ignores comment lines and anything below the scissors line, as git does', () => {

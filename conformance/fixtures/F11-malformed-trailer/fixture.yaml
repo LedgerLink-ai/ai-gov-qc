@@ -1,0 +1,13 @@
+id: F11
+title: A malformed Assisted-by trailer is reported, not blocked (the pull request blocks)
+repo: link_core
+actor: human
+as_of: 2027-01-08
+commit_message: |
+  LCORE-212: Add bounded retry
+
+  Assisted-by: cursor/gpt-5
+exact: true
+expect:
+  - check: commit.trailer
+    blocking: false

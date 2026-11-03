@@ -4,9 +4,8 @@ repo: link_core
 actor: agent
 as_of: 2027-01-08
 commit_message: |
-  feat(transaction): add bounded retry to settlement poller
+  LCORE-212: Add bounded retry to the settlement poller
 
-  Refs: LL-1423
   Assisted-by: Cursor, gpt-5, 1.7.0
 exact: true
 expect: []
