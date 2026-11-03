@@ -61,7 +61,7 @@ One effect of pre-filling: in the editor, saving without typing no longer aborts
 
 ## 1. Once per machine
 
-Everything comes from one package, `@ledgerlink/qa` (`ledgerlink-qa-<version>.tgz`). It works the same on Windows, macOS and Linux. Requirements: Node 20 or later, git, and Python 3.9 or later.
+Everything comes from one package, `@ledgerlink/qa` (`ledgerlink-qa-<version>.tgz`). It works the same on Windows, macOS and Linux. Requirements: Node 20 or later, git, and Python 3.9 to 3.14.
 
 ```bash
 npm install -g <full path to ledgerlink-qa-0.2.1.tgz, its URL, or @ledgerlink/qa@0.2.1>
