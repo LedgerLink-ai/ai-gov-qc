@@ -1,8 +1,18 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { satisfies } from '../src/cli';
-import { expectedChecksum, gitleaksAsset } from '../src/setup';
+import { expectedChecksum, gitleaksAsset, pyLauncherVersions } from '../src/setup';
 import { CONFIG_DIR } from './helpers';
+
+describe('qa setup: choosing a Python on Windows', () => {
+  it('lists the launcher versions newest first, in both launcher formats', () => {
+    expect(
+      pyLauncherVersions(' -V:3.15 *        Python 3.15 (64-bit)\n -V:3.12          Python 3.12 (64-bit)\n'),
+    ).toEqual(['-3.15', '-3.12']);
+    expect(pyLauncherVersions(' -3.11-64 *\n -3.9-32\n')).toEqual(['-3.11', '-3.9']);
+    expect(pyLauncherVersions('No installed Pythons found!')).toEqual([]);
+  });
+});
 
 describe('qa --require', () => {
   it('accepts the same or a newer compatible version', () => {

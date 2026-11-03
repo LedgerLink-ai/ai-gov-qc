@@ -50,7 +50,7 @@ jobs:
       - name: install and run the package
         shell: bash
         run: |
-          npm install -g --no-audit --no-fund out/ledgerlink-qa-*.tgz
+          npm install -g --no-audit --no-fund ./out/ledgerlink-qa-*.tgz
           qa version
           qa validate
       - if: matrix.os == 'ubuntu-latest'
