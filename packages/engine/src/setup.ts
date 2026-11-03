@@ -18,7 +18,7 @@ import type { Config } from './types';
 
 // "qa setup": installs the tools the local hooks need, at the versions pinned
 // in policy.yaml, into the qa home (see tools-home.ts). The same steps on
-// Windows, macOS and Linux; needs Node 20+, git and Python 3.9+.
+// Windows, macOS and Linux; needs Node 20+, git and Python 3.9 to 3.14.
 //
 //   pre-commit, semgrep  pip, into a private Python environment
 //   gitleaks             the release archive for this OS and CPU, checked
@@ -51,26 +51,42 @@ const versionOf = (cmd: string, args: string[]): string | undefined => {
   return r.ok ? versionIn(r.out) : undefined;
 };
 
-/** A Python 3.9+ to create the private environment with. */
-function findPython(): { cmd: string; args: string[]; version: string } | undefined {
-  const candidates: Array<[string, string[]]> = isWindows
-    ? [
-        ['py', ['-3']],
-        ['python', []],
-        ['python3', []],
-      ]
-    : [
-        ['python3', []],
-        ['python', []],
-      ];
+// The Python 3 minor versions the pinned tools install on. The newest is
+// capped because Semgrep 1.183.0 requires pywin32==311 on Windows, which has
+// no build for Python 3.15.
+export const PYTHON_MINORS = { min: 9, max: 14 };
+
+/**
+ * Launcher arguments for every Python the Windows "py" launcher lists, newest
+ * first: "-V:3.14 *" (current launchers) and "-3.12-64" (older ones) give -3.14, -3.12.
+ */
+export function pyLauncherVersions(listing: string): string[] {
+  const minors = [...listing.matchAll(/-(?:V:)?3\.(\d+)/g)].map((m) => Number(m[1]));
+  return [...new Set(minors)].sort((a, b) => b - a).map((minor) => `-3.${minor}`);
+}
+
+/**
+ * A Python to create the private environment with: the newest one the pinned
+ * tools support, else (with supported: false) the newest 3.9 or later.
+ */
+function findPython(): { cmd: string; args: string[]; version: string; supported: boolean } | undefined {
+  const candidates: Array<[string, string[]]> = [];
+  if (isWindows) {
+    const listed = run('py', ['--list']);
+    if (listed.ok) for (const v of pyLauncherVersions(listed.out)) candidates.push(['py', [v]]);
+    candidates.push(['python', []], ['python3', []]);
+  } else candidates.push(['python3', []], ['python', []]);
+  let newer: { cmd: string; args: string[]; version: string; supported: boolean } | undefined;
   for (const [cmd, args] of candidates) {
     const r = run(cmd, [...args, '-c', 'import sys; print("%d.%d.%d" % sys.version_info[:3])']);
     const v = r.ok ? versionIn(r.out) : undefined;
     if (!v) continue;
     const [major, minor] = v.split('.').map(Number);
-    if (major === 3 && minor >= 9) return { cmd, args, version: v };
+    if (major !== 3 || minor < PYTHON_MINORS.min) continue;
+    if (minor <= PYTHON_MINORS.max) return { cmd, args, version: v, supported: true };
+    newer ??= { cmd, args, version: v, supported: false };
   }
-  return undefined;
+  return newer;
 }
 
 /** Launchers in <home>/bin, so "pre-commit" and "semgrep" work from any shell once it is on PATH. */
@@ -94,11 +110,21 @@ function setupPython(pins: Record<string, string>, row: Row): boolean {
     return true;
   }
   const python = findPython();
+  const range = `3.${PYTHON_MINORS.min} to 3.${PYTHON_MINORS.max}`;
   if (!python) {
-    row('FAIL', 'python', 'Python 3.9 or later not found; install it from python.org, then run "qa setup" again');
+    row('FAIL', 'python', `Python ${range} not found; install it from python.org, then run "qa setup" again`);
     return false;
   }
-  row('ok', 'python', `${python.version} (${[python.cmd, ...python.args].join(' ')})`);
+  row(
+    python.supported ? 'ok' : 'WARN',
+    'python',
+    `${python.version} (${[python.cmd, ...python.args].join(' ')})${python.supported ? '' : `; the pinned tools support ${range}, so pip may fail`}`,
+  );
+  // An environment left by an earlier run on an unsupported Python (for
+  // example 3.15, where Semgrep's pywin32 pin has no build) is made again.
+  const venvMinor = Number(versionOf(venvProgram('python'), ['--version'])?.split('.')[1]);
+  if (venvMinor > PYTHON_MINORS.max || venvMinor < PYTHON_MINORS.min)
+    rmSync(venvDir(), { recursive: true, force: true });
   if (!existsSync(venvProgram('python'))) {
     const r = run(python.cmd, [...python.args, '-m', 'venv', venvDir()]);
     if (!r.ok) {
@@ -110,7 +136,11 @@ function setupPython(pins: Record<string, string>, row: Row): boolean {
   process.stdout.write(`Installing ${specs.join(', ')} into ${venvDir()} (a few minutes the first time)\n`);
   const pip = run(venvProgram('python'), ['-m', 'pip', 'install', '--disable-pip-version-check', '-q', ...specs], true);
   if (!pip.ok) {
-    row('FAIL', 'pip install', `${specs.join(' ')} failed; see the pip output above`);
+    row(
+      'FAIL',
+      'pip install',
+      `${specs.join(' ')} failed; see the pip output above${python.supported ? '' : `. Install Python ${range} and run "qa setup" again`}`,
+    );
     return false;
   }
   let ok = true;

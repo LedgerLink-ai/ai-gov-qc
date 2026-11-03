@@ -21,7 +21,7 @@ The tools that are not npm packages are installed by `qa setup` on each machine,
 | Semgrep    | 1.183.0 | same                                                                                        |
 | Gitleaks   | 8.30.1  | the GitHub release archive for the OS and CPU, SHA-256 checked, into `~/.ledgerlink-qa/bin` |
 
-Gitleaks builds exist for Windows (x64, arm64), macOS (x64, arm64) and Linux (x64, arm64 and others). Python 3.9 or later must already be on the machine; `qa setup` says so if it is missing.
+Gitleaks builds exist for Windows (x64, arm64), macOS (x64, arm64) and Linux (x64, arm64 and others). Python 3.9 to 3.14 must already be on the machine; `qa setup` says so if it is missing.
 
 ## Where to host it
 

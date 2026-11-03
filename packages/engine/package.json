@@ -1,6 +1,6 @@
 {
   "name": "@ledgerlink/qa-mcp",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "LedgerLink QA check engine (qa CLI). The MCP server, git hooks and CI gate are thin wrappers around it.",
   "license": "UNLICENSED",
   "main": "dist/index.js",
