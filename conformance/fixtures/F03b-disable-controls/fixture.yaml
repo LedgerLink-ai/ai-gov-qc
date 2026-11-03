@@ -1,0 +1,10 @@
+id: F03b
+title: Instruction file tells agents to skip tests and bypass hooks
+repo: fiat2stable-agent
+actor: human
+as_of: 2027-01-08
+exact: true
+expect:
+  - check: ai-config.content-lint
+    path: AGENTS.md
+    blocking: true

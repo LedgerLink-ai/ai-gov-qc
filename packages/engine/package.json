@@ -1,0 +1,30 @@
+{
+  "name": "@ledgerlink/qa-mcp",
+  "version": "0.1.0",
+  "description": "LedgerLink QA check engine (qa CLI). The MCP server, git hooks and CI gate are thin wrappers around it.",
+  "license": "UNLICENSED",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "qa": "bin/qa.js"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "config"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "ajv": "8.17.1",
+    "picomatch": "4.0.2",
+    "yaml": "2.6.1"
+  },
+  "devDependencies": {
+    "@types/picomatch": "3.0.1"
+  }
+}

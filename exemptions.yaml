@@ -1,0 +1,13 @@
+# Known-defect exemptions (R15-16). Each entry needs an owner, an approver and
+# an expiry date. An expired exemption stops suppressing its finding.
+#
+# - id: EX-0001
+#   check: ai-config.content-lint
+#   repo: link_core
+#   path: AGENTS.md
+#   owner: name
+#   approved_by: name
+#   reason: why the finding is accepted for now
+#   expires: 2026-12-31
+version: 1
+exemptions: []

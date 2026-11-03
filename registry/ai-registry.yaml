@@ -1,0 +1,74 @@
+# Approved AI tools, models and MCP servers (CAP-14 C14-1, R14-6).
+# Seeded from the commit-history review of 14 Oct 2026. Every tool stays
+# `pending-inventory` until the week-1 inventory (task S-03) confirms its tier,
+# models and owner. `models: ["*"]` means "not yet pinned", not "anything goes":
+# it is replaced with the confirmed model list at inventory.
+version: 1
+updated: 2026-10-22
+
+tools:
+  - id: claude-code
+    name: Claude Code
+    vendor: Anthropic
+    status: pending-inventory
+    tier: TBC
+    models: ['*']
+    owner: TBC
+    review_by: 2026-11-06
+    trailer_aliases: ['noreply@anthropic.com']
+    profile:
+      mcp_config: .mcp.json
+      rule_file: CLAUDE.md
+      exclusion_file: .claude/settings.json
+
+  - id: cursor
+    name: Cursor
+    vendor: Anysphere
+    status: pending-inventory
+    tier: TBC
+    models: ['*']
+    owner: TBC
+    review_by: 2026-11-06
+    trailer_aliases: ['cursoragent@cursor.com']
+    profile:
+      mcp_config: .cursor/mcp.json
+      rule_file: .cursor/rules/ledgerlink.mdc
+      exclusion_file: .cursorignore
+
+  - id: github-copilot
+    name: GitHub Copilot
+    vendor: GitHub
+    status: pending-inventory
+    tier: TBC
+    models: ['*']
+    owner: TBC
+    review_by: 2026-11-06
+    trailer_aliases: ['copilot']
+    profile:
+      mcp_config: .vscode/mcp.json
+      rule_file: .github/copilot-instructions.md
+
+  - id: openai-codex
+    name: OpenAI Codex
+    vendor: OpenAI
+    status: pending-inventory
+    tier: TBC
+    models: ['*']
+    owner: TBC
+    review_by: 2026-11-06
+    trailer_aliases: ['codex']
+    profile:
+      rule_file: AGENTS.md
+
+# Agent identities that commit or open pull requests (CAP-11 C11-3, CAP-15).
+agents:
+  - login: copilot-swe-agent[bot]
+    tool: github-copilot
+
+mcp_servers:
+  - id: ledgerlink-qa
+    status: approved
+    owner: Senior AI Engineer
+    match:
+      package: '@ledgerlink/qa-mcp'
+      versions: ['0.1.0']

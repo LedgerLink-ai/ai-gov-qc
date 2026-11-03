@@ -1,0 +1,10 @@
+id: F04b
+title: Approved MCP server not pinned to an exact version
+repo: link_core
+actor: human
+as_of: 2027-01-08
+exact: true
+expect:
+  - check: ai-config.mcp-allowlist
+    path: .vscode/mcp.json
+    blocking: true

@@ -1,0 +1,9 @@
+# Placeholder owners until the GitHub teams exist (client request 4.2).
+# Registries, schemas, prompts and the engine are ai-config: changes need the
+# Senior AI Engineer; execution rules and thresholds also need the Solution
+# Architect (00_EXECUTION_RULES section 8).
+*                    @LedgerLink-ai/ai-governance
+/policy.yaml         @LedgerLink-ai/ai-governance @LedgerLink-ai/solution-architect
+/checks.yaml         @LedgerLink-ai/ai-governance @LedgerLink-ai/solution-architect
+/path-tags.yaml      @LedgerLink-ai/ai-governance @LedgerLink-ai/solution-architect
+/.github/            @LedgerLink-ai/ai-governance @LedgerLink-ai/devops

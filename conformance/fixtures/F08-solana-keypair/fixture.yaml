@@ -1,0 +1,15 @@
+id: F08
+title: Solana keypair file (64 byte values) committed with a test
+repo: link_client_enterprise_wallet
+actor: human
+as_of: 2027-01-08
+requires: [gitleaks]
+values:
+  # Random bytes; split so this repository never holds the array whole.
+  BYTES:
+    - '63, 217, 112, 173, 182, 146, 53, 106, 175, 45, 20, 209, 119, 38, 211, 18, 211, 92, 124, 138, 239, 147, 150, 41, 56, 182, 44, 242, 147, 151, 188, 143, '
+    - '80, 151, 31, 133, 199, 226, 4, 240, 242, 209, 55, 188, 205, 174, 124, 152, 63, 234, 179, 212, 112, 167, 203, 19, 220, 176, 17, 111, 16, 60, 66, 1'
+expect:
+  - check: secrets.gitleaks
+    path: test/keys/id.json
+    blocking: true

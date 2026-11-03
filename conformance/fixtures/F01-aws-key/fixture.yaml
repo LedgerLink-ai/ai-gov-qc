@@ -1,0 +1,13 @@
+id: F01
+title: AWS access key in a TypeScript file
+repo: link_core
+actor: human
+as_of: 2027-01-08
+requires: [gitleaks]
+values:
+  # Synthetic key, split so this repository never holds it whole.
+  AWS_KEY: ['AKIA', 'QX7RMZ4P2LWD5N3T']
+expect:
+  - check: secrets.gitleaks
+    path: src/config/aws.ts
+    blocking: true

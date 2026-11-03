@@ -1,0 +1,13 @@
+id: F07
+title: EVM private key assigned in a signing module
+repo: link_client_enterprise_wallet
+actor: human
+as_of: 2027-01-08
+requires: [gitleaks]
+values:
+  # Random, never a funded key; split so this repository never holds it whole.
+  KEY: ['c009a0f24676937d2f8894563cb73d1f', '16214b63c2569e61c072e6ae56589d0f']
+expect:
+  - check: secrets.gitleaks
+    path: src/evm/signer.ts
+    blocking: true

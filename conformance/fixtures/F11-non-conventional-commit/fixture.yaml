@@ -1,0 +1,11 @@
+id: F11
+title: Commit header that is not in Conventional Commits form
+repo: link_core
+actor: human
+as_of: 2027-01-08
+commit_message: |
+  Fixed the retry thing
+exact: true
+expect:
+  - check: commit.conventional
+    blocking: true

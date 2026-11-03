@@ -1,0 +1,268 @@
+# Local checks on the developer's machine
+
+Step 1 of the AI Code Review flow (`LedgerLink_AI_Code_Review_Implementation.docx`, section 2): checks on the developer's machine, using the pre-commit framework, with every hook pinned to an exact version. They run at three checkpoints:
+
+| Checkpoint          | When                                                                            | Target  | What runs                                                                                                                                                                                                                                                                                                                                                            | Measured (sandbox)        |
+| ------------------- | ------------------------------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| Stage 1: pre-commit | Every `git commit`                                                              | 5–15 s  | Formatting and linting of the staged files (the repository's own Prettier and ESLint); `check-added-large-files` (500 KB) and `check-merge-conflict`; `qa-precommit`: Gitleaks 8.30.1 with private-key and BIP39 rules, agent instruction files, MCP allowlist, protected paths. Then the commit-msg hook: `qa-commit-msg` (Conventional Commits, Refs, Assisted-by) | 12 s for the whole commit |
+| Stage 2: pre-push   | Every `git push`                                                                | 30–90 s | Unit tests (`repo-script`), type check (`repo-tool typescript:tsc --noEmit`), build verification, optional dependency check, `qa-prepush`: Semgrep 1.183.0 (C16-1 money types on ledger, payments, signing and ingestion paths)                                                                                                                                      | 20 s                      |
+| Stage 3: pre-PR     | Before opening a pull request: `pre-commit run --hook-stage manual --all-files` | 1–3 min | Full lint, formatting of every file the PR changes, full test suite with coverage, build, then `qa-prepr`: branch name, every commit message, diff size, coverage threshold, and every qa check again on the whole change since the base branch                                                                                                                      | 20 s                      |
+
+Stage 2 and 3 run the repository's own scripts through two generic hooks, so one template fits every repository:
+
+- `repo-script [--cwd <dir>] [--advisory] <script>` runs a `package.json` script with the package manager the lockfile names (yarn, pnpm or npm). `--advisory` reports a failure without blocking.
+- `repo-tool [--pr-files] <package>[:<bin>] [args]` runs a tool from `node_modules`. `--pr-files` adds the files the pull request changes as arguments.
+
+Both print a "skipped" notice and pass when the repository's dependencies are not installed, or when it has no such script.
+
+The pull request rules (stage 3) and their limits are in `policy.yaml` under `pr:`:
+
+| Check            | Rule                                                                                                                                   | Mode                                                     |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| `pr.branch-name` | `<TICKET-123>-<description>` (`LD-475-rc-sync`) or `<type>/<description>` (`chore/precommit-local-checks`); not the base branch itself | block                                                    |
+| `pr.commits`     | Every commit since the base branch passes the commit-msg rules (catches commits made with `--no-verify`)                               | block                                                    |
+| `pr.diff-size`   | Warning above 400 changed lines, error above 1,000; lockfiles and snapshots not counted                                                | report                                                   |
+| `tests.coverage` | Line coverage of at least 80% in each `coverage/coverage-summary.json` (Istanbul json-summary: c8, nyc, Jest, Vitest)                  | report: the plan keeps a coverage gate out of this phase |
+
+`qa prepr` finds the base branch from `origin/HEAD` (for example `origin/develop`); set `QA_PR_BASE` to use another.
+
+The Gitleaks rules added to the defaults are in `config/gitleaks.toml`, generated by `npm run gen:gitleaks`:
+
+- `evm-private-key`
+- `bip32-extended-private-key`
+- `bitcoin-wif-private-key`
+- `solana-keypair-array`
+- `bip39-mnemonic`, built from the BIP39 English wordlist, which is checked against its published SHA-256
+
+Local hooks can be bypassed with `git commit --no-verify`. That is accepted: the pull request runs every check again, where it cannot be skipped.
+
+## 1. Once per machine
+
+Everything comes from one package, `@ledgerlink/qa` (`ledgerlink-qa-<version>.tgz`). It works the same on Windows, macOS and Linux. Requirements: Node 20 or later, git, and Python 3.9 or later.
+
+```bash
+npm install -g <ledgerlink-qa-0.1.0.tgz, its URL, or @ledgerlink/qa@0.1.0>
+qa setup
+```
+
+- **`npm install -g`** installs the `qa` command. The package carries its npm dependencies, so this needs no registry: a file share, a release download or CodeArtifact all work (see [PACKAGE.md](PACKAGE.md)).
+- **`qa setup`** installs the external tools at the versions pinned under `tools:` in `policy.yaml`, into `~/.ledgerlink-qa` (`QA_HOME` or `--home` to change it):
+  - **pre-commit and Semgrep:** pip, into a private Python environment, so the machine's own Python is left alone.
+  - **Gitleaks:** the release archive for this OS and CPU, checked against the official SHA-256 list stored in `config/gitleaks_8.30.1_checksums.txt` before it is unpacked. With no access to GitHub, download the archive another way and run `qa setup --gitleaks-archive <file>`, or use a mirror with `--download-base <url>`.
+  - **The git template:** sets `init.templateDir`, so every clone from then on has the pre-commit, commit-msg and pre-push hooks connected. It is left alone when `init.templateDir` is already set.
+- **Add `~/.ledgerlink-qa/bin` to PATH.** `qa setup` prints the command for your OS. Git's own hooks work without it, but husky and your shell need it to find `pre-commit`.
+- **Check:** `qa doctor` in any repository ends with `result: READY`.
+
+Semgrep is optional locally: without it the pre-push hook prints `sast.semgrep … runs in CI`. Gitleaks is needed for the secret scan; without it the scan is skipped locally with the same notice.
+
+After setup, for existing clones:
+
+- **A clone that already exists:** run `git init` inside it once to pick up the template, or `pre-commit install`.
+- **A repository without `.pre-commit-config.yaml`:** the hooks print "config file not found. Skipping" and change nothing.
+- **husky repositories:** husky owns the hooks there and calls pre-commit itself.
+
+**Nothing is installed per repository.** The hooks call the one `qa` installed on the machine, so ten repositories share it. Each repository pins the version it needs: its hooks run `qa --require 0.1.0 …`, and an incompatible `qa` stops with the install command instead of checking. Compatible means the same major version (the same minor below 1.0) and not older.
+
+On this machine (3 Nov 2026) the tools were installed earlier by hand, with pip and winget, and the git template is `~/.git-template`. `qa setup` was checked separately in a throwaway folder: an offline `npm install -g` of the `.tgz` took 8 s, and `qa setup` installed pre-commit 4.7.0, Semgrep 1.183.0 and Gitleaks 8.30.1 (SHA-256 checked) in about a minute.
+
+## 2. Once per repository
+
+1. Copy `templates/pre-commit-config.yaml` (also in the installed package, under `templates/`) to the repository root as `.pre-commit-config.yaml`. Change the script names in `args` and `entry` to the repository's own, delete what does not apply, and commit it once.
+2. Only if the git template is not set up: run `pre-commit install` in each clone.
+3. Run `qa doctor` in the repository. It checks the tool versions against `policy.yaml`, the installed `qa` against the repository's `--require` version, the config file and the three hooks, and ends with `result: READY` or `result: NOT READY`.
+
+**Before the package is installed on a machine**, the repository's hooks fail with "qa: command not found". Install it, or skip the hooks once with `--no-verify`.
+
+**Local testing only:** `link-dashboard` still pins a local hook repository (`npm run release:local`, `.pre-commit-hooks.yaml`), the way it was set up on 2 Nov, until it is switched to the package. That route needs the built engine in the release, because pre-commit installs node hooks with `npm install -g` and npm cannot build the TypeScript in that mode.
+
+### Repositories that use husky
+
+Some repositories use husky, for example `link-dashboard` and `internal_bank_simulator`. husky sets `core.hooksPath`, and `pre-commit install` refuses to run while it is set. Keep husky and have it call pre-commit instead.
+
+**Files in the repository:**
+
+| File                      | Change                                                                                                                       |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `.pre-commit-config.yaml` | New. The template without `default_install_hook_types`, with the repository's own script names in each stage                 |
+| `.husky/pre-commit`       | Add `pre-commit run --hook-stage pre-commit` after the existing commands                                                     |
+| `.husky/commit-msg`       | New: `pre-commit run --hook-stage commit-msg --commit-msg-filename "$1"`                                                     |
+| `.husky/pre-push`         | Only `pre-commit run --hook-stage pre-push`: the stage 2 checks move into `.pre-commit-config.yaml`, so they are listed once |
+| `package.json`            | A `pre-pr` script: `pre-commit run --hook-stage manual --all-files`                                                          |
+
+Each husky call is wrapped in `if command -v pre-commit …`. A developer without pre-commit then gets a "skipped" notice instead of a blocked commit or push; the pull request runs the same checks.
+
+In `link-dashboard` (2 Nov 2026) the existing pre-push checks were split by the time targets:
+
+| Stage 2: `.husky/pre-push`                                                                                                                     | Stage 3: `yarn pre-pr`                                                                                                                                                                                                                               |
+| ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `test:unit`; server `test`; `tsc --noEmit`; server `build`; `tokens:build`; `lint:deps` (dashboard and server); `security:check`; fast Semgrep | `yarn install --frozen-lockfile --check-files`; `eslint .`; Prettier on the PR's files; `test:unit`; server `test:coverage` (`server/.c8rc.json` adds the json-summary report); `test:fast` E2E (advisory, as before); `build` (Next.js); `qa-prepr` |
+
+The Next.js build, the full lint, the E2E tests and the lockfile check moved from pre-push to pre-PR: together they take minutes, beyond the 30–90 s pre-push target.
+
+**Setup per clone:** run `yarn install`, which runs husky's `prepare` script. `qa doctor` recognises husky and checks that each `.husky/<hook>` calls pre-commit.
+
+**Before `yarn install` can run**, connect the hooks directly:
+
+```powershell
+pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type pre-push
+```
+
+For example, `link-dashboard` needs LedgerLink's AWS CodeArtifact login first, because `@ledgerlink/link-sdk` comes from that private registry. Until `node_modules` exists, `repo-prettier` and `repo-eslint` print "not installed in this repository yet … skipped". `doctor` shows `READY` with a warning that husky is not set up yet.
+
+Once `yarn install` succeeds, husky sets `core.hooksPath` and git stops reading `.git/hooks`. Remove the direct hooks then:
+
+```powershell
+pre-commit uninstall --hook-type pre-commit --hook-type commit-msg --hook-type pre-push
+```
+
+Checked on `link-dashboard` on 2 Nov 2026 with the direct hooks:
+
+- A normal commit: every hook passed, and the header `test:pre-commit checks` was reported.
+- With `QA_AS_OF=2027-01-08`, three commits were blocked: that header, a staged AWS key, and an `AGENTS.md` telling agents to skip tests.
+- With the three stages (no `node_modules`, no CodeArtifact login): stage 1 passes in 5 s and `test:pre-commit checks` is blocked at commit-msg. Stage 2 passes; each repository script prints its "skipped" notice and Semgrep runs. In stage 3, `qa-prepr` passes for `chore/precommit-local-checks` (2 commits, 6 files), and the lockfile check fails with `401 Unauthorized` from CodeArtifact, which is correct until the login exists.
+
+## 3. Manual test in the sandbox
+
+The sandbox is a throwaway copy of the developer set-up, next to this checkout:
+
+| Folder                            | Contents                                                                                                                |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `../sandbox/qa-package`           | The installable package (`npm run package`), unpacked; the clone's hooks run its `qa`                                   |
+| `../sandbox/remote/link_core.git` | Stands in for GitHub                                                                                                    |
+| `../sandbox/link_core`            | A developer clone with ESLint, Prettier, TypeScript, c8, a unit test, `.pre-commit-config.yaml` and the hooks installed |
+| `../sandbox/messages`             | Sample commit messages                                                                                                  |
+
+Nothing here touches a real LedgerLink repository or GitHub.
+
+### 3.1 Build it (about 1 minute; longer the first time)
+
+From `C:\LedgerLink Client\Implementation\qc-workflows`:
+
+```powershell
+npm install
+npm run sandbox -- setup
+node packages/engine/bin/qa.js doctor --config . --root ../sandbox/link_core
+```
+
+Expected: `Sandbox ready`, then `doctor` shows nine `ok` lines and `result: READY`.
+
+After you change the engine or the rules, run `npm run sandbox -- refresh`. It re-releases the checkout and repins the clone.
+
+### 3.2 Try each scenario
+
+Each scenario resets the clone to `origin/main` on a branch `try/<scenario>`, then writes and stages its files. You then commit **inside the clone**, exactly as a developer would:
+
+```powershell
+npm run sandbox -- secrets
+cd ..\sandbox\link_core
+git commit -m "feat(config): add settings"
+cd ..\..\qc-workflows
+```
+
+**The commit message format is enforced now.** Every commit message must follow the implementation plan's format:
+
+```
+feat(payments): add idempotency key to refund endpoint
+
+Refs: LL-1423
+Assisted-by: <tool>, <model>, <version>    (AI-assisted commits only)
+```
+
+- **Header:** a Conventional Commits header (`feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore` or `revert`).
+- **Then:** a blank line, then a `Refs:` line naming one or more tickets (`LD-480`, or `LD-480, LD-481`).
+- **AI-assisted commits:** also an `Assisted-by:` line.
+
+From the command line, each `-m` becomes its own paragraph, which gives the blank line:
+
+```powershell
+git commit -m "feat(dashboard): add asset toggles" -m "Refs: LD-480"
+```
+
+Merges, reverts and `fixup!`/`squash!` commits that git writes itself are accepted as they are.
+
+**Other checks report only until their switch-on dates.** Until each check's date in `policy.yaml`, its findings show as `REPORT` and the commit goes through:
+
+- Gitleaks and Semgrep switch on 16 Nov.
+- Instruction-file lint and the MCP allowlist switch on 30 Nov.
+- Protected paths switch on 14 Dec.
+
+**Order.** git runs the pre-commit checks first and the commit-message checks second, because git only has the message at that point. A failure at either step stops the commit.
+
+To see the hooks as they will behave after go-live, set the date for your terminal first:
+
+```powershell
+$env:QA_AS_OF = '2027-01-08'
+```
+
+Clear it again with `Remove-Item env:QA_AS_OF`. The large-file, merge-conflict, Prettier and ESLint hooks have no switch-on date: they block from day one.
+
+The results below were checked on 2 Nov 2026 with `QA_AS_OF=2027-01-08` unless marked "today".
+
+| #   | Scenario (`npm run sandbox -- …`) | Then, inside `../sandbox/link_core`                                                        | Expected                                                                                                                                                                    |
+| --- | --------------------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `clean`                           | `git commit -F ..\messages\msg-good.txt`                                                   | Every hook `Passed`; commit created                                                                                                                                         |
+| 2   | `secrets`                         | `git commit -m "feat(config): add keys"`                                                   | `qa: secrets …` **Failed**: 4 × `BLOCK secrets.gitleaks` (aws-access-token, generic-api-key and evm-private-key on `signer.ts`, bip39-mnemonic). No value is printed        |
+| 3   | `secrets`, **today**              | same                                                                                       | Same 4 findings as `REPORT`, `result: PASS`, commit created                                                                                                                 |
+| 4   | `hidden-unicode`                  | `git commit -m "docs(agents): update"`                                                     | 2 × `BLOCK ai-config.content-lint`: U+200B and U+202E, with line and column                                                                                                 |
+| 5   | `disable-controls`                | same                                                                                       | `BLOCK` for "skip the tests" and "--no-verify"                                                                                                                              |
+| 6   | `bad-mcp`                         | same                                                                                       | `BLOCK ai-config.mcp-allowlist`: some-web-mcp-server is not in the AI registry                                                                                              |
+| 7   | `workflow-edit`                   | `$env:QA_ACTOR='agent'` then commit                                                        | `BLOCK paths.protected` (clear it afterwards: `Remove-Item env:QA_ACTOR`)                                                                                                   |
+| 8   | `workflow-edit`                   | commit as yourself                                                                         | `NOTE paths.protected`, commit created                                                                                                                                      |
+| 9   | `large-file`                      | commit                                                                                     | `check for added large files` **Failed**: `assets/ledger-dump.bin (600 KB) exceeds 500 KB`                                                                                  |
+| 10  | `merge-conflict`                  | commit                                                                                     | `check for merge conflicts` **Failed** on lines 1, 3 and 5                                                                                                                  |
+| 11  | `format`                          | commit; then `git add -A` and commit again                                                 | First: `prettier` **Failed**, `files were modified by this hook`. Second: passes with the formatted file                                                                    |
+| 12  | `lint`                            | commit                                                                                     | `eslint` **Failed**: `'unused' is assigned a value but never used`                                                                                                          |
+| 13  | `clean`                           | `git commit -F ..\messages\msg-not-conventional.txt`                                       | `qa: Conventional Commits …` **Failed**: `BLOCK commit.conventional`                                                                                                        |
+| 13b | `clean`                           | `git commit -F ..\messages\msg-no-ticket.txt`                                              | `BLOCK commit.conventional`: no `Refs: <TICKET-123>` line                                                                                                                   |
+| 14  | `clean`                           | `git commit -F ..\messages\msg-unregistered.txt`                                           | `BLOCK commit.trailer`: AI tool "Windsurf" is not in the AI registry                                                                                                        |
+| 15  | `clean`                           | `git commit -F ..\messages\msg-malformed.txt`                                              | `BLOCK commit.trailer`: not in the form `Assisted-by: <tool>, <model>, <version>`                                                                                           |
+| 16  | `clean`                           | `$env:QA_ASSISTED_BY='Cursor, gpt-5, 1.7.0'` then `git commit -F ..\messages\msg-none.txt` | `qa: added "Assisted-by: Cursor, gpt-5, 1.7.0" from QA_ASSISTED_BY`; `git log -1` shows the trailer                                                                         |
+| 17  | `money`                           | commit, then `git push -u origin try/money`                                                | Commit passes (Semgrep is a pre-push check). Push: `qa: fast Semgrep rule set` **Failed**, 2 × `BLOCK sast.semgrep` (toFixed, parseFloat); `failed to push some refs`       |
+| 18  | `money`, **today**                | `git push -u origin try/money`                                                             | Same 2 findings as `REPORT`; `unit tests` passes; branch pushed                                                                                                             |
+| 19  | `type-error`                      | `git commit -F ..\messages\msg-none.txt`, then `git push -u origin try/type-error`         | Commit passes. Push: `type check` and `build verification` **Failed** with `TS2322`; `failed to push some refs`                                                             |
+| 20  | `pr-ready` (makes 2 commits)      | `pre-commit run --hook-stage manual --all-files`                                           | Every stage 3 hook `Passed`; coverage 100%; `qa prepr: feat/LL-1423-bounded-retry into origin/main, 2 commit(s)`, `result: PASS`                                            |
+| 21  | `pr-bad` (makes 1 commit)         | same                                                                                       | `qa: pull request checks` **Failed**: `BLOCK pr.branch-name` (`my-changes`), 2 × `BLOCK pr.commits` (`wip`: not conventional, no Refs), `REPORT pr.diff-size` (1,200 lines) |
+
+Other messages in `..\messages`:
+
+- `msg-coauthor.txt`: a `Co-authored-by` AI line only. Expected: `NOTE`; the commit goes through.
+- `msg-none.txt`: header and `Refs:` line, no trailer. Expected: passes. A commit without the trailer is declared as written without AI assistance.
+
+### 3.3 Run a hook without committing
+
+Useful when you want the output without making a commit. From inside the clone:
+
+```powershell
+pre-commit run                                # pre-commit hooks on the staged files
+pre-commit run --all-files                    # pre-commit hooks on every file
+pre-commit run --hook-stage pre-push --all-files   # the pre-push hooks (stage 2)
+pre-commit run --hook-stage manual --all-files     # the pre-PR hooks (stage 3)
+```
+
+pre-commit refuses to run while `.pre-commit-config.yaml` has unstaged edits; `git add` it first.
+
+The engine behind `qa-precommit` can also be run directly, as in [TESTING.md](TESTING.md):
+
+```powershell
+node packages/engine/bin/qa.js precommit --root ../sandbox/link_core --as-of 2027-01-08
+```
+
+## 4. Step 1 is done when
+
+- [ ] `npm test`, `npm run lint`, `npm run validate` and `npm run conform` pass. On 2 Nov 2026: 65 tests; 11 checks; 16 of 16 fixtures pass on both the API and CLI paths, with Gitleaks and Semgrep installed.
+- [ ] `qa doctor` shows `READY` for the sandbox clone.
+- [ ] Scenarios 1–21 above give the expected result.
+- [ ] One real repository (suggested: a copy of `link_core`) has `.pre-commit-config.yaml` and `pre-commit install`, and a normal commit passes.
+
+## 5. Open points
+
+- **Commit conventions.** Several LedgerLink repositories use their own header today, for example `LD-475:` in `link-dashboard` and `F2SAT-<n>:` and `LBLTN-<n>:` elsewhere (`scripts/verify-commit-msg.ts`). Those headers are now blocked. The ticket moves to the `Refs:` line, as in the plan's example. Repositories that enforce their own header in `scripts/verify-commit-msg.ts` need that script updated, or the two checks will contradict each other.
+- **Conventional Commits has no capability ID.** No capability document has a control or rule for it, so `checks.yaml` cites the implementation plan as its `source` instead.
+- **Speed on Windows.** The hooks add up to about 8 s; ESLint is the largest share at 3 s. pre-commit's own start-up brings a commit to 10–13 s on this machine. The qa hook alone takes 2.5–3.5 s.
+- **AI-assisted commits.** Commits are not yet tagged automatically from the AI tool itself. A developer, or the tool's terminal profile, sets `QA_ASSISTED_BY`.
+- **Formatting debt in link-dashboard.** 54 files on `develop` are not Prettier-formatted (line endings aside), so stage 3 checks only the files a pull request changes. One formatting commit would allow `prettier --check .` on the whole tree.
+- **`security:check` on Windows.** `scripts/check-hardcoded-urls.js` in link-dashboard runs `git grep … '(https?://|wss?://)'` through `cmd.exe`, which does not understand the single quotes, so the script fails on Windows. It was already in the old pre-push hook; it needs double quotes to work on both.
+- **Placeholder flagged as a secret.** `.env.example` line 15 in link-dashboard is a placeholder `-----BEGIN EC PRIVATE KEY-----` value; Gitleaks reports it whenever a pull request touches that file. It reports only until 16 Nov; before then it needs a baseline entry (`qa baseline`) or an allowlist rule.
+- **Coverage gate.** `tests.coverage` reports only: the plan keeps a coverage threshold out of this phase, because it would block repositories whose coverage does not exist yet. In link-dashboard only the server writes a coverage summary; the dashboard's `node --test` unit tests do not measure coverage.
+- **Without pre-commit installed**, husky's pre-push now skips with a notice instead of running the old checks directly, because the checks are listed only in `.pre-commit-config.yaml`.
+- **Ownership of hook repository releases.** Agent-authored commits from a GitHub App identity, and a release workflow that tags qc-workflows with the built engine, come with the GitHub organisation (client request 1.1).

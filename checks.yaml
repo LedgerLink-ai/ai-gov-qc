@@ -1,0 +1,116 @@
+# Every check the engine can run (Technical Design V2.2 section 10.2).
+# `controls` and `rules` cite IDs from repo-docs/capabilities; an ID that is
+# not in those documents must never be added here (grounding rule G2). A check
+# that no capability ID covers names its `source` document instead.
+# Stages: 0 triage, 1 hygiene (seconds), 2 analysis and tests (minutes),
+# 3 the pull request as a whole. The pre-commit hook runs stages 0-1, the
+# pre-push hook stage 2, "qa prepr" (before a pull request is opened) 0-3 on
+# everything the pull request contains, and CI all.
+version: 1
+
+checks:
+  - id: secrets.gitleaks
+    title: Secret scan
+    kind: tool
+    tool: gitleaks
+    stage: 1
+    scope: file
+    tags: all
+    controls: []
+    rules: [R22-6, R22-10, R14-8]
+
+  - id: ai-config.content-lint
+    title: AI instruction file content lint
+    kind: native
+    stage: 1
+    scope: file
+    tags: [ai-config]
+    extra_globs: ['**/README.md', '**/README.*.md']
+    controls: [C14-4]
+    rules: [R14-8]
+
+  - id: ai-config.mcp-allowlist
+    title: Only registry-listed MCP servers
+    kind: native
+    stage: 1
+    scope: file
+    tags: [ai-config]
+    controls: [C14-6]
+    rules: [R14-6]
+
+  - id: paths.protected
+    title: Protected paths
+    kind: native
+    stage: 1
+    scope: file
+    tags: all
+    controls: [C15-4]
+    rules: [R11-6]
+
+  - id: commit.trailer
+    title: AI provenance trailer
+    kind: native
+    stage: 1
+    scope: commit
+    tags: all
+    controls: [C11-2]
+    rules: [R11-8, R14-6]
+
+  - id: commit.conventional
+    title: Commit message format (Conventional Commits header, Refs ticket)
+    kind: native
+    stage: 1
+    scope: commit
+    tags: all
+    controls: []
+    rules: []
+    source: AI Code Review implementation approach, section 2 (commit-msg hook)
+
+  - id: sast.semgrep
+    title: Fast Semgrep rule set (money types)
+    kind: tool
+    tool: semgrep
+    stage: 2
+    scope: file
+    tags: [ledger, payments, signing, ingestion]
+    controls: [C16-1]
+    rules: []
+
+  - id: pr.branch-name
+    title: Branch name (ticket or type prefix, not the base branch)
+    kind: native
+    stage: 3
+    scope: pr
+    tags: all
+    controls: []
+    rules: []
+    source: Local checkpoints, stage 3 pre-PR (PR-specific checks)
+
+  - id: pr.commits
+    title: Every commit in the pull request follows the commit message format
+    kind: native
+    stage: 3
+    scope: pr
+    tags: all
+    controls: [C11-2]
+    rules: [R11-8]
+
+  - id: pr.diff-size
+    title: Pull request size
+    kind: native
+    stage: 3
+    scope: pr
+    tags: all
+    controls: []
+    rules: []
+    source: Local checkpoints, stage 3 pre-PR (PR-specific checks)
+
+  - id: tests.coverage
+    title: Line coverage threshold
+    kind: native
+    stage: 3
+    scope: pr
+    tags: all
+    controls: []
+    rules: []
+    source: Local checkpoints, stage 3 pre-PR (coverage threshold)

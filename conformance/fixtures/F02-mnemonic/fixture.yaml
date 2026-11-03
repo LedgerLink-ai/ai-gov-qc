@@ -1,0 +1,13 @@
+id: F02
+title: BIP39 mnemonic in a test fixture
+repo: link_client_enterprise_wallet
+actor: human
+as_of: 2027-01-08
+requires: [gitleaks]
+values:
+  # The public BIP39 test vector, split so this repository never holds it whole.
+  MNEMONIC: ['abandon abandon abandon abandon abandon abandon ', 'abandon abandon abandon abandon abandon about']
+expect:
+  - check: secrets.gitleaks
+    path: test/fixtures/wallet.json
+    blocking: true

@@ -1,0 +1,70 @@
+# Releases the installable package. Run by hand (Actions > release > Run
+# workflow) with the version both package.json files already carry on main.
+# It runs the full CI matrix, then tags v<version> and attaches
+# ledgerlink-qa-<version>.tgz and its SHA-256 to a GitHub release. Developers
+# install it with:
+#   npm install -g <release asset URL or downloaded .tgz>
+#   qa setup
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, e.g. 0.1.0 (must match package.json)'
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the tag and the release
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: check the version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          node scripts/release.js --check "$VERSION"
+          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null; then
+            echo "v$VERSION is already released" >&2
+            exit 1
+          fi
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: package
+          path: out
+      - name: create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          cd out
+          sha256sum -c "ledgerlink-qa-$VERSION.tgz.sha256"
+          gh release create "v$VERSION" \
+            --target "$GITHUB_SHA" \
+            --title "qa $VERSION" \
+            --notes "Install: npm install -g <this release's ledgerlink-qa-$VERSION.tgz>, then run: qa setup" \
+            "ledgerlink-qa-$VERSION.tgz" "ledgerlink-qa-$VERSION.tgz.sha256"
+
+      # Optional: also publish to LedgerLink's CodeArtifact npm registry, so
+      # developers can run "npm install -g @ledgerlink/qa@<version>". Needs an
+      # AWS role that trusts this repository through GitHub OIDC (id-token: write).
+      # - uses: aws-actions/configure-aws-credentials@<sha> # pin to a commit
+      #   with:
+      #     role-to-assume: arn:aws:iam::417691602217:role/<qa-release-role>
+      #     aws-region: us-east-2
+      # - run: |
+      #     aws codeartifact login --tool npm --domain ledgerlink --domain-owner 417691602217 --repository ledgerlink
+      #     npm publish "out/ledgerlink-qa-${{ inputs.version }}.tgz"

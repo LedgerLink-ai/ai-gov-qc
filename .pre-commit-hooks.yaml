@@ -1,0 +1,101 @@
+# Hooks this repository provides to LedgerLink repositories (AI Code Review
+# implementation, section 2). Each repository pins this repository by tag in its
+# .pre-commit-config.yaml; start from templates/pre-commit-config.yaml.
+# pre-commit installs the qa engine into its own environment from the tagged
+# source, so every developer runs the same engine and rules.
+
+- id: qa-precommit
+  name: 'qa: secrets, agent instruction files, MCP allowlist, protected paths'
+  description: Stage 0-1 checks on the staged changes. Gitleaks must be on PATH; without it the secret scan runs only in CI.
+  entry: qa precommit --quiet
+  language: node
+  pass_filenames: false
+  always_run: true
+  require_serial: true
+  verbose: true
+  stages: [pre-commit]
+  minimum_pre_commit_version: '3.2.0'
+
+- id: repo-prettier
+  name: 'prettier (repository version)'
+  description: The repository's own Prettier from its node_modules. Skipped with a notice until dependencies are installed.
+  entry: qa repo-tool prettier --write --ignore-unknown --log-level warn
+  language: node
+  types_or: [ts, tsx, javascript, jsx]
+  require_serial: true
+  verbose: true
+  stages: [pre-commit]
+  minimum_pre_commit_version: '3.2.0'
+
+- id: repo-eslint
+  name: 'eslint (repository version)'
+  description: The repository's own ESLint from its node_modules. Skipped with a notice until dependencies are installed.
+  entry: qa repo-tool eslint --fix --no-warn-ignored
+  language: node
+  types_or: [ts, tsx, javascript, jsx]
+  require_serial: true
+  verbose: true
+  stages: [pre-commit]
+  minimum_pre_commit_version: '3.2.0'
+
+- id: qa-commit-msg
+  name: 'qa: Conventional Commits and Assisted-by trailer'
+  description: Checks the commit message; adds the Assisted-by trailer from QA_ASSISTED_BY when it is missing.
+  entry: qa commit-msg --quiet
+  language: node
+  verbose: true
+  stages: [commit-msg]
+  minimum_pre_commit_version: '3.2.0'
+
+- id: qa-prepush
+  name: 'qa: fast Semgrep rule set'
+  description: Stage 2 checks on the commits being pushed. Semgrep is optional locally; CI always runs it.
+  entry: qa prepush --quiet
+  language: node
+  pass_filenames: false
+  always_run: true
+  require_serial: true
+  verbose: true
+  stages: [pre-push]
+  minimum_pre_commit_version: '3.2.0'
+
+# Generic hooks for each repository's own tests, type check and build, used at
+# pre-push (stage 2) and pre-PR (stage 3, the "manual" hook stage). Each
+# repository sets the script or tool in `args`, and may list a hook several
+# times with different args, each with its own `alias` and `name`.
+
+- id: repo-script
+  name: 'repository script'
+  description: Runs a package.json script with the repository's package manager (args - [--cwd, <dir>,] <script>). Skipped with a notice until dependencies are installed, or when the repository has no such script.
+  entry: qa repo-script
+  language: node
+  pass_filenames: false
+  always_run: true
+  require_serial: true
+  verbose: true
+  stages: [pre-push, manual]
+  minimum_pre_commit_version: '3.2.0'
+
+- id: repo-tool
+  name: 'repository tool'
+  description: Runs a tool from the repository's node_modules on the whole repository (args - <package>[:<bin>] [args...], e.g. [eslint, .] or [typescript:tsc, --noEmit]). Skipped with a notice until dependencies are installed.
+  entry: qa repo-tool
+  language: node
+  pass_filenames: false
+  always_run: true
+  require_serial: true
+  verbose: true
+  stages: [pre-push, manual]
+  minimum_pre_commit_version: '3.2.0'
+
+- id: qa-prepr
+  name: 'qa: pull request checks (branch, commits, size, coverage) and every stage on the full change'
+  description: Stage 0-3 checks on everything the pull request contains. Run it last, after the test suite, so it can read the coverage summary.
+  entry: qa prepr
+  language: node
+  pass_filenames: false
+  always_run: true
+  require_serial: true
+  verbose: true
+  stages: [manual]
+  minimum_pre_commit_version: '3.2.0'

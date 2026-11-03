@@ -1,0 +1,29 @@
+# Fast Semgrep rule set for the sast.semgrep check (pre-push and CI).
+# C16-1 money-type lint: amounts on ledger, payments, signing and ingestion
+# paths must not pass through JavaScript floating point. The check runs only on
+# files carrying those path tags (checks.yaml), so these rules need no path
+# filter of their own.
+rules:
+  - id: money-parsefloat
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: parseFloat() on a money path loses precision. Use the Decimal or BigInt money type (C16-1).
+    pattern: parseFloat($X)
+
+  - id: money-number-cast
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: Number() on a money path converts to floating point. Use the Decimal or BigInt money type (C16-1).
+    pattern: Number($X)
+
+  - id: money-tofixed
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: toFixed() rounds a floating-point value. Round with the money type's own rounding mode (C16-1).
+    pattern: $X.toFixed(...)
+
+  - id: money-number-type
+    languages: [typescript]
+    severity: ERROR
+    message: A money field is typed as number. Type it with the Decimal or BigInt money type (C16-1).
+    pattern-regex: '\b(?:amount|balance|price|fee|total)\w*\s*\??\s*:\s*number\b'

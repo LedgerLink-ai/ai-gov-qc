@@ -1,0 +1,77 @@
+# The installable package
+
+Developers install the local checks from one package, `@ledgerlink/qa`, the same way on Windows, macOS and Linux. This page covers building it, hosting it and releasing it. For using it, see [PRECOMMIT.md](PRECOMMIT.md).
+
+## What it contains
+
+`npm run package` builds `out/ledgerlink-qa-<version>.tgz` (about 0.5 MB) and `out/ledgerlink-qa-<version>.tgz.sha256`.
+
+| In the package  | What it is                                                                                                                                   |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bin/`, `dist/` | The `qa` command: the compiled engine, plain JavaScript                                                                                      |
+| `config/`       | A snapshot of the registries, `policy.yaml`, `checks.yaml`, the Gitleaks and Semgrep rules, the schemas, and the official Gitleaks checksums |
+| `templates/`    | `pre-commit-config.yaml` for each repository                                                                                                 |
+| `node_modules/` | Its npm dependencies (ajv, picomatch, yaml), bundled, so installing it needs no npm registry                                                 |
+
+The tools that are not npm packages are installed by `qa setup` on each machine, at the versions pinned in `policy.yaml`:
+
+| Tool       | Version | How `qa setup` installs it                                                                  |
+| ---------- | ------- | ------------------------------------------------------------------------------------------- |
+| pre-commit | 4.7.0   | pip, into a private Python environment in `~/.ledgerlink-qa/venv`                           |
+| Semgrep    | 1.183.0 | same                                                                                        |
+| Gitleaks   | 8.30.1  | the GitHub release archive for the OS and CPU, SHA-256 checked, into `~/.ledgerlink-qa/bin` |
+
+Gitleaks builds exist for Windows (x64, arm64), macOS (x64, arm64) and Linux (x64, arm64 and others). Python 3.9 or later must already be on the machine; `qa setup` says so if it is missing.
+
+## Where to host it
+
+Any of these works; developers then run `npm install -g <location>` and `qa setup`:
+
+| Host                  | Developers install with                                                                                 | Notes                                                                                               |
+| --------------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| A shared drive        | `npm install -g \\server\share\ledgerlink-qa-0.1.0.tgz` (or the macOS/Linux mount path)                 | Simplest; publish the `.sha256` next to it                                                          |
+| A GitHub release      | `npm install -g https://github.com/<org>/qc-workflows/releases/download/v0.1.0/ledgerlink-qa-0.1.0.tgz` | What `.github/workflows/release.yml` makes; private repositories need a download with a token first |
+| AWS CodeArtifact      | `npm install -g @ledgerlink/qa@0.1.0` after `aws codeartifact login --tool npm …`                       | Same registry as `@ledgerlink/link-sdk`; the release workflow has the step, commented out           |
+| GitHub Packages (npm) | `npm install -g @ledgerlink/qa@0.1.0` with an `.npmrc` for the `@ledgerlink` scope                      | Needs the GitHub organisation                                                                       |
+
+## Releasing
+
+Nothing has been published yet. When qc-workflows is on GitHub:
+
+1. Set the same new version in `package.json` and `packages/engine/package.json`, and in the `--require` versions of `templates/pre-commit-config.yaml`. Merge to main.
+2. Run **Actions › release › Run workflow** with that version.
+
+The release workflow first runs `ci.yml`, which on Windows, macOS and Linux:
+
+- lints, formats and builds
+- runs `qa setup` to get the pinned scanners
+- runs the tests and the conformance fixtures
+- builds the package, installs it globally from the file and runs it
+
+It then tags `v<version>` and attaches the `.tgz` and its SHA-256 to a GitHub release. Actions are pinned to commit SHAs.
+
+**Every published package needs a new version.** npm caches packages by name and version, so a rebuilt `0.1.0` is not picked up by machines that installed `0.1.0` before.
+
+## Trying it locally
+
+```bash
+npm run package
+npm install -g --prefix <empty folder> out/ledgerlink-qa-0.1.0.tgz --offline
+<empty folder>/qa setup --home <another folder> --no-git-template
+```
+
+`--prefix` and `--home` keep the test away from the machine's own setup. The sandbox in [PRECOMMIT.md](PRECOMMIT.md) uses the package the same way: `npm run sandbox -- refresh` rebuilds it, unpacks it into `../sandbox/qa-package`, and points the clone's hooks at it.
+
+To remove an installation: `npm uninstall -g @ledgerlink/qa`, delete `~/.ledgerlink-qa`, and unset `init.templateDir` if `qa setup` set it (`git config --global --unset init.templateDir`).
+
+## Checked on 3 Nov 2026 (Windows 11 only)
+
+- **Package:** built at 512 KB. It installed with `npm install -g --offline` in 8 s, and `qa validate` used the bundled configuration.
+- **`qa setup`** in a throwaway folder installed pre-commit 4.7.0 and Semgrep 1.183.0 into the private environment. Gitleaks 8.30.1 was downloaded, SHA-256 checked and installed.
+- **Git template:** with a separate global git config, `qa setup` created the template. A new repository then had all three hooks with no `pre-commit install`:
+  - `update readme` was blocked.
+  - `chore(repo): add local checks` with `Refs: LL-1423` committed.
+  - `qa doctor` showed READY.
+  - With the config changed to require `0.2.0`, the hook stopped with the install command.
+- **Sandbox:** on the package, stage 1 committed, a staged secret was blocked, a type error was blocked at push, and the good and bad pre-PR branches passed and were blocked as expected.
+- **macOS and Linux** have not been run here. `ci.yml` runs them on GitHub once the repository is pushed.

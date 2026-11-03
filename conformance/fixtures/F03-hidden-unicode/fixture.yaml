@@ -1,0 +1,13 @@
+id: F03
+title: Zero-width and bidirectional characters in AGENTS.md
+repo: link_core
+actor: human
+as_of: 2027-01-08
+values:
+  ZWSP: { codepoint: 'U+200B' }
+  RLO: { codepoint: 'U+202E' }
+exact: true
+expect:
+  - check: ai-config.content-lint
+    path: AGENTS.md
+    blocking: true

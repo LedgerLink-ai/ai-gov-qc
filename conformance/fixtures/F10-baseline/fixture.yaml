@@ -1,0 +1,13 @@
+id: F10
+title: A finding already in the dated baseline is reported but does not block
+repo: link_core
+actor: human
+as_of: 2027-01-08
+baseline_from_self: true
+values:
+  ZWSP: { codepoint: 'U+200B' }
+exact: true
+expect:
+  - check: ai-config.content-lint
+    path: AGENTS.md
+    blocking: false

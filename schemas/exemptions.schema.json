@@ -1,0 +1,29 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ledgerlink.internal/qa/exemptions.schema.json",
+  "title": "Exemption register",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "exemptions"],
+  "properties": {
+    "version": { "const": 1 },
+    "exemptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "check", "repo", "path", "owner", "approved_by", "reason", "expires"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^EX-\\d{4}$" },
+          "check": { "type": "string", "minLength": 1 },
+          "repo": { "type": "string", "minLength": 1 },
+          "path": { "type": "string", "minLength": 1 },
+          "owner": { "type": "string", "minLength": 1 },
+          "approved_by": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string", "minLength": 10 },
+          "expires": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" }
+        }
+      }
+    }
+  }
+}

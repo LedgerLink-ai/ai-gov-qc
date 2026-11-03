@@ -1,0 +1,10 @@
+id: F12
+title: Floating-point money arithmetic on a ledger path (C16-1)
+repo: link_core
+actor: human
+as_of: 2027-01-08
+requires: [semgrep]
+expect:
+  - check: sast.semgrep
+    path: src/transaction/fee.ts
+    blocking: true

@@ -1,0 +1,18 @@
+id: F09
+title: BIP32 extended private key in a wallet setup script
+repo: link_client_enterprise_wallet
+actor: human
+as_of: 2027-01-08
+requires: [gitleaks]
+values:
+  # Random base58, never a real wallet; split so this repository never holds it whole.
+  XPRV:
+    [
+      'xprv',
+      'f7PpPXFAGDfipXssKGsB4oQRiuN5DPsvMtQzNWkD3ixSBLNtLN2EHz',
+      'RUTH7T1zRm1XAodP2zc3TnY12bZkfuqdoQ9q4eekJithZgGtU9N3b',
+    ]
+expect:
+  - check: secrets.gitleaks
+    path: src/setup/hd-root.ts
+    blocking: true

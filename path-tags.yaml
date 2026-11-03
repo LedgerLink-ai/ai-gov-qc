@@ -1,0 +1,118 @@
+# Path tags (00_EXECUTION_RULES section 3). Single source for Stage 0 triage
+# and, from week 4, for generated CODEOWNERS. Paths are from the repositories
+# as cloned on 2026-10-14. Owners are placeholders until LedgerLink names them
+# (client request 4.2); min_approvals follows R11-10.
+version: 1
+
+tags:
+  ledger:
+    description: Off-chain ledger, migrations and jobs
+    owners: ['TBC: financial-domain owners']
+    min_approvals: 2
+    paths:
+      link_core: ['src/transaction/**', 'src/database/migrations/**', 'src/jobs/**']
+
+  compliance:
+    description: Screening and verification (fail-closed class)
+    owners: ['TBC: compliance owners']
+    min_approvals: 1
+    paths:
+      link_verify: ['src/**']
+
+  payments:
+    description: Payment flows, routing, translation and valuation
+    owners: ['TBC: payments owners']
+    min_approvals: 1
+    paths:
+      fiat2stable-agent: ['src/transaction/**', 'src/transfer-batch/**', 'src/circle/**']
+      link_router: ['src/core/**', 'src/message/**', 'src/integrations/**']
+      transaction-translator-lib: ['src/**']
+      link_quote: ['server/**']
+
+  signing:
+    description: Wallet, custody and signing code
+    owners: ['TBC: signing owners']
+    min_approvals: 2
+    paths:
+      link_client_enterprise_wallet:
+        - 'src/transactions/**'
+        - 'src/fireblocks/**'
+        - 'src/vault/**'
+        - 'src/setup/**'
+        - 'src/approval/**'
+        - 'src/evm/**'
+        - 'src/solana/**'
+        - 'src/bitcoin/**'
+        - 'src/polymesh/**'
+
+  contracts:
+    description: Smart contracts
+    owners: ['TBC: contract owners']
+    min_approvals: 2
+    paths:
+      link_client_enterprise_wallet: ['src/smart-contracts/**']
+
+  ingestion:
+    description: Chain ingestion
+    owners: ['TBC: ingestion owners']
+    min_approvals: 1
+    paths:
+      link_blockchain_listener: ['src/**']
+      blockchain-listener: ['src/**']
+
+  agent-auth:
+    description: Agent authentication and delegation
+    owners: ['TBC: auth owners']
+    min_approvals: 2
+    paths:
+      link_access_layer:
+        - 'src/oauth/**'
+        - 'src/credentials/**'
+        - 'src/downstream/**'
+        - 'src/delegated-clients/**'
+        - 'src/resource-constraints/**'
+        - 'src/auth/**'
+      link-sdk: ['src/sdk/agent.ts', 'src/sdk/admin-resources.ts', 'src/**/oauth*']
+
+  accounts:
+    description: Accounts, participants and middleware
+    owners: ['TBC: wallet-manager owners']
+    min_approvals: 1
+    paths:
+      link_wallet_manager: ['src/accounts/**', 'src/participants/**', 'src/middleware/**']
+
+  ai-config:
+    description: AI instruction files, AI tool configuration and these capability documents
+    owners: ['TBC: AI governance owners']
+    min_approvals: 1
+    paths:
+      '*':
+        - '**/AGENTS.md'
+        - '**/CLAUDE.md'
+        - 'context/**'
+        - '.claude/**'
+        - '.cursor/**'
+        - '.cursorignore'
+        - '.aiignore'
+        - '.github/copilot-instructions.md'
+        - '.github/instructions/**'
+        - '**/*.prompt.md'
+        - '**/.mcp.json'
+        - '.vscode/mcp.json'
+        - '.gitignore'
+
+  ci-config:
+    description: Workflows, CODEOWNERS, PR template and gitops
+    owners: ['TBC: DevOps owners']
+    min_approvals: 1
+    paths:
+      '*': ['.github/workflows/**', 'CODEOWNERS', '.github/CODEOWNERS', '.github/pull_request_template.md']
+      gitops: ['**']
+
+  docs-only:
+    description: Documentation only. Applies to a file only when it has no other tag.
+    owners: []
+    min_approvals: 1
+    only_if_untagged: true
+    paths:
+      '*': ['**/*.md', 'docs/**', '**/*.png', '**/*.jpg', '**/*.svg']

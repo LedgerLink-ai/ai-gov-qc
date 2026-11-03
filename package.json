@@ -1,0 +1,59 @@
+{
+  "name": "qc-workflows",
+  "version": "0.1.0",
+  "private": true,
+  "description": "LedgerLink QA harness: governance registries, the qa check engine and its front ends",
+  "workspaces": [
+    "packages/*"
+  ],
+  "bin": {
+    "qa": "packages/engine/bin/qa.js"
+  },
+  "files": [
+    "packages/engine/bin",
+    "packages/engine/dist",
+    "packages/engine/package.json",
+    "registry",
+    "schemas",
+    "config",
+    "checks.yaml",
+    "policy.yaml",
+    "path-tags.yaml",
+    "exemptions.yaml"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p packages/engine/tsconfig.build.json",
+    "test": "jest",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "validate": "node packages/engine/bin/qa.js validate --config .",
+    "conform": "node packages/engine/bin/qa.js conform --config .",
+    "doctor": "node packages/engine/bin/qa.js doctor --config .",
+    "gen:gitleaks": "node scripts/gen-gitleaks-config.js",
+    "release:local": "node scripts/release-local.js",
+    "sandbox": "node scripts/make-sandbox.js",
+    "package": "node scripts/package.js",
+    "release:check": "node scripts/release.js --check"
+  },
+  "dependencies": {
+    "ajv": "8.17.1",
+    "picomatch": "4.0.2",
+    "yaml": "2.6.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.15.0",
+    "@types/jest": "29.5.14",
+    "@types/node": "20.17.6",
+    "@types/picomatch": "3.0.1",
+    "eslint": "9.15.0",
+    "jest": "29.7.0",
+    "prettier": "3.3.3",
+    "ts-jest": "29.2.5",
+    "typescript": "5.6.3",
+    "typescript-eslint": "8.15.0"
+  }
+}
