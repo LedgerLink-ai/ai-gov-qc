@@ -8,7 +8,10 @@ import type { AiRegistry } from './types';
 //   - the ticket key from the branch name (LCORE-210-limit-invariants gives
 //     "LCORE-210: "), unless the subject already starts with a key
 //   - the developer's Assisted-by default (git config ledgerlink.assistedBy),
-//     unless the message already has the trailer
+//     unless the message already has the trailer; "none" means no AI tools
+//
+// When it adds nothing it says why (no key in the branch, no default set),
+// so a message left as it was is not mistaken for a hook that did not run.
 //   - Co-authored-by trailers added by AI tools become Assisted-by
 //
 // Messages git writes itself are left alone: merges, squashes, amends and
@@ -32,6 +35,8 @@ export interface PrepareResult {
 }
 
 const LEAVE_SOURCES = new Set(['merge', 'squash', 'commit']);
+/** The ledgerlink.assistedBy value for developers who do not use AI tools. */
+export const NO_DEFAULT = 'none';
 const GIT_SUBJECT = /^(?:(?:fixup|squash|amend)! |Revert ")/;
 const KEY_IN_BRANCH = /(?:^|\/)([A-Z][A-Z0-9]+-\d+)(?=$|[-_./])/;
 const KEY_AT_START = /^[A-Z][A-Z0-9]+-\d+\b/;
@@ -62,8 +67,10 @@ export function prepareMessage(input: PrepareInput): PrepareResult {
 
   // 1. Co-authored-by lines from AI tools become Assisted-by.
   const assistedBy = input.assistedBy?.trim();
+  // "none": the developer does not use AI tools; no default and no reminder.
+  const optedOut = assistedBy?.toLowerCase() === NO_DEFAULT;
   const defaultValue = assistedBy && parseTrailerValue(assistedBy) ? assistedBy : undefined;
-  if (assistedBy && !defaultValue)
+  if (assistedBy && !optedOut && !defaultValue)
     notes.push(`ledgerlink.assistedBy "${assistedBy}" is not "${TRAILER_FORM}"; not used`);
   const converted: string[] = [];
   if (input.registry) {
@@ -94,6 +101,11 @@ export function prepareMessage(input: PrepareInput): PrepareResult {
       lines[subjectIdx] = `${key}: ${lines[subjectIdx].trim()}`;
       notes.push(`added "${key}: " from branch ${input.branch}`);
     }
+  } else if (input.branch !== 'HEAD' && (subjectIdx === undefined || !KEY_AT_START.test(lines[subjectIdx].trim()))) {
+    // Said every time, so a message left as it was is not mistaken for a hook that did not run.
+    notes.push(
+      `no ticket key added: branch ${input.branch} has none (recommended: <TICKET-123>-<description>, e.g. LCORE-210-limit-invariants)`,
+    );
   }
 
   // 3. The developer's Assisted-by default, when the message has none.
@@ -104,6 +116,10 @@ export function prepareMessage(input: PrepareInput): PrepareResult {
   if (defaultValue && !hasAssisted && converted.length === 0) {
     addTrailer(lines, `${TRAILER}: ${defaultValue}`);
     notes.push(`added "${TRAILER}: ${defaultValue}"; delete it if no AI was used (git commit --amend)`);
+  } else if (!assistedBy && !hasAssisted && converted.length === 0) {
+    notes.push(
+      `no ${TRAILER} added: no default set. Set it once: git config --global ledgerlink.assistedBy "<tool>, <model>, <version>" (or "${NO_DEFAULT}" if you do not use AI tools)`,
+    );
   }
 
   return { message: lines.join(eol), notes };

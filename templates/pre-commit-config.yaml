@@ -3,8 +3,9 @@
 # repository as .pre-commit-config.yaml.
 #
 # Once per machine (Windows, macOS or Linux; Node 20+, git, Python 3.9+):
-#   npm install -g @ledgerlink/qa@0.2.0     (or the ledgerlink-qa-0.2.0.tgz file)
+#   npm install -g @ledgerlink/qa@0.2.1     (or the full path to ledgerlink-qa-0.2.1.tgz)
 #   qa setup                                (pre-commit, Semgrep, Gitleaks, git template)
+#   git config --global ledgerlink.assistedBy "<tool>, <model>, <version>"   ("none" without AI tools)
 # Every clone made afterwards connects the hooks by itself; in a clone made
 # before, run "pre-commit install" once. Check with: qa doctor
 #

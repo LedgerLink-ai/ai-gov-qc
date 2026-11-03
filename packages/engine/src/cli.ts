@@ -4,7 +4,8 @@ import { homedir } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { TOOL_ADAPTERS } from './adapters/tools';
 import { versionIn } from './adapters/tools/workdir';
-import { prepareMessage } from './prepare-message';
+import { parseTrailerValue } from './checks/commit-trailer';
+import { NO_DEFAULT, prepareMessage } from './prepare-message';
 import { loadConfig } from './config';
 import { runConformance, unavailableTools } from './conform';
 import { today } from './policy';
@@ -520,6 +521,12 @@ function doctor(flags: Flags): number {
     return tplDir !== '' && existsSync(file) && readFileSync(file, 'utf8').includes('pre-commit');
   });
   if (tplHooks.length === HOOK_TYPES.length) row('ok', 'git template', `${tplDir} connects the hooks in new clones`);
+  else if (tplHooks.length > 0)
+    row(
+      'WARN',
+      'git template',
+      `${tplDir} lacks ${HOOK_TYPES.filter((h) => !tplHooks.includes(h)).join(', ')}; run "qa setup" to update it`,
+    );
   else
     row(
       'WARN',
@@ -528,6 +535,18 @@ function doctor(flags: Flags): number {
     );
 
   const root = rootOf(flags);
+  // The prepare-commit-msg hook adds this to commit messages.
+  const assisted = assistedByDefault(root);
+  if (!assisted)
+    row(
+      'WARN',
+      'Assisted-by default',
+      `not set; set it once: git config --global ledgerlink.assistedBy "<tool>, <model>, <version>" ("${NO_DEFAULT}" without AI tools)`,
+    );
+  else if (assisted.toLowerCase() === NO_DEFAULT) row('ok', 'Assisted-by default', `"${NO_DEFAULT}": no AI tools`);
+  else if (parseTrailerValue(assisted)) row('ok', 'Assisted-by default', assisted);
+  else row('WARN', 'Assisted-by default', `"${assisted}" is not "<tool>, <model>, <version>"; the hook ignores it`);
+
   const repoRoot = tryGitRoot(root);
   print(`Repository ${repoRoot ?? root}`);
   if (!repoRoot) {

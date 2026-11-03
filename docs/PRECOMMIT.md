@@ -49,11 +49,13 @@ Assisted-by: <tool>, <model>, <version>    (AI-assisted commits only)
 The `prepare-commit-msg` hook (`qa prepare-commit-msg`) pre-fills the message before you write or edit it, and prints what it added:
 
 - **Ticket key** from the branch name: `LCORE-210-limit-invariants` (or `feature/LCORE-210-…`) gives `LCORE-210: `, unless the subject already starts with a key.
-- **Assisted-by** from your default, set once with `git config --global ledgerlink.assistedBy "<tool>, <model>, <version>"` (`QA_ASSISTED_BY` is the fallback). Delete the line when no AI was used; with `git commit -m` no editor opens, so the hook prints the line it added and `git commit --amend` removes it.
+- **Assisted-by** from your default, set once with `git config --global ledgerlink.assistedBy "<tool>, <model>, <version>"` (`QA_ASSISTED_BY` is the fallback; `none` for developers who do not use AI tools). Delete the line when no AI was used; with `git commit -m` no editor opens, so the hook prints the line it added and `git commit --amend` removes it.
 - **AI `Co-authored-by` lines** become `Assisted-by`: with your default when it names the same tool, else `<tool>, <model>, <version>` to fill in.
 - **Left alone:** merges, squashes, amends, `-c`/`-C` reuse, and `fixup!`/`squash!`/`amend!` and `Revert "…"` subjects.
 
 The Assisted-by trailer is checked for its form only, on the pull request (`pr-rules`, Danger JS); `qa prepr` reports the same locally. A malformed trailer typed by hand is therefore caught on the pull request, not at commit time. A repository whose own husky `commit-msg` hook already requires its Jira key keeps that hook.
+
+When the hook adds nothing it says why, so a message left as it was is not mistaken for a hook that did not run: `no ticket key added: branch qa/quality-gates has none …` and `no Assisted-by added: no default set …` (the second is silent once the default is set, including to `none`). `qa doctor` also shows the default, or warns that it is not set.
 
 One effect of pre-filling: in the editor, saving without typing no longer aborts the commit (the message is not empty); it creates a commit whose subject is only the key, e.g. `LCORE-210:`. Abort by deleting every line instead.
 
@@ -62,8 +64,9 @@ One effect of pre-filling: in the editor, saving without typing no longer aborts
 Everything comes from one package, `@ledgerlink/qa` (`ledgerlink-qa-<version>.tgz`). It works the same on Windows, macOS and Linux. Requirements: Node 20 or later, git, and Python 3.9 or later.
 
 ```bash
-npm install -g <ledgerlink-qa-0.2.0.tgz, its URL, or @ledgerlink/qa@0.2.0>
+npm install -g <full path to ledgerlink-qa-0.2.1.tgz, its URL, or @ledgerlink/qa@0.2.1>
 qa setup
+git config --global ledgerlink.assistedBy "<tool>, <model>, <version>"   # or "none" without AI tools
 ```
 
 - **`npm install -g`** installs the `qa` command. The package carries its npm dependencies, so this needs no registry: a file share, a release download or CodeArtifact all work (see [PACKAGE.md](PACKAGE.md)).

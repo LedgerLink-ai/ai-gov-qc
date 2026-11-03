@@ -42,14 +42,28 @@ describe('ticket key from the branch name', () => {
 
 describe('prepare-commit-msg', () => {
   it('prefixes the subject with the ticket key from the branch', () => {
-    const r = prep('Add idempotency key to refund endpoint\n');
+    const r = prep('Add idempotency key to refund endpoint\n', { assistedBy: 'none' });
     expect(r.message).toBe('LCORE-210: Add idempotency key to refund endpoint\n');
     expect(r.notes).toEqual(['added "LCORE-210: " from branch LCORE-210-limit-invariants']);
   });
 
   it('leaves a subject that already starts with a ticket key, any project', () => {
     expect(prep('LWMNG-141: Stop logging the API key\n').message).toBe('LWMNG-141: Stop logging the API key\n');
-    expect(prep('LCORE-210 tidy\n').notes).toEqual([]);
+    expect(prep('LCORE-210 tidy\n', { branch: 'qa/quality-gates', assistedBy: 'none' }).notes).toEqual([]);
+  });
+
+  it('says why when it adds nothing: no key in the branch, no default set', () => {
+    const r = prep('add precommit-config\n', { branch: 'qa/quality-gates' });
+    expect(r.message).toBe('add precommit-config\n');
+    expect(r.notes).toEqual([
+      'no ticket key added: branch qa/quality-gates has none (recommended: <TICKET-123>-<description>, e.g. LCORE-210-limit-invariants)',
+      'no Assisted-by added: no default set. Set it once: git config --global ledgerlink.assistedBy "<tool>, <model>, <version>" (or "none" if you do not use AI tools)',
+    ]);
+  });
+
+  it('stays quiet about the default for developers who set "none", and on a detached HEAD about the key', () => {
+    expect(prep('Fix\n', { branch: 'HEAD', assistedBy: 'none' }).notes).toEqual([]);
+    expect(prep('Fix\n', { branch: 'HEAD', assistedBy: 'None' }).message).toBe('Fix\n');
   });
 
   it('enforces no subject format: a Conventional Commits subject only gains the key', () => {
@@ -59,7 +73,10 @@ describe('prepare-commit-msg', () => {
   it('adds the Assisted-by default after a blank line, and says so', () => {
     const r = prep('Add retry\n', { branch: 'main', assistedBy: DEFAULT });
     expect(r.message).toBe(`Add retry\n\nAssisted-by: ${DEFAULT}\n`);
-    expect(r.notes).toEqual([`added "Assisted-by: ${DEFAULT}"; delete it if no AI was used (git commit --amend)`]);
+    expect(r.notes).toEqual([
+      expect.stringMatching(/^no ticket key added: branch main has none/),
+      `added "Assisted-by: ${DEFAULT}"; delete it if no AI was used (git commit --amend)`,
+    ]);
   });
 
   it('appends to an existing trailer block instead of starting a new one', () => {
@@ -121,7 +138,7 @@ describe('prepare-commit-msg', () => {
   });
 
   it('ignores a malformed default and says why', () => {
-    const r = prep('Fix\n', { branch: 'main', assistedBy: 'cursor/gpt-5' });
+    const r = prep('Fix\n', { branch: 'HEAD', assistedBy: 'cursor/gpt-5' });
     expect(r.message).toBe('Fix\n');
     expect(r.notes).toEqual([
       'ledgerlink.assistedBy "cursor/gpt-5" is not "Assisted-by: <tool>, <model>, <version>"; not used',
