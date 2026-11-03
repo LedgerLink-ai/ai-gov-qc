@@ -1,0 +1,31 @@
+# Pull requests into main come from dev only: feature branches merge into dev
+# first, and dev merges into main (which releases a new version). GitHub
+# cannot restrict a pull request's source branch by itself, so the main
+# ruleset requires this check; a pull request from any other branch cannot
+# be merged into main.
+name: branch-policy
+
+on:
+  pull_request:
+    branches: [main]
+    # edited: re-checked when a pull request is retargeted to main.
+    types: [opened, synchronize, reopened, edited]
+
+permissions: {}
+
+jobs:
+  main-from-dev:
+    name: main accepts pull requests from dev only
+    runs-on: ubuntu-latest
+    steps:
+      - name: check the source branch
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          if [ "$HEAD_REF" = dev ] && [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ]; then
+            echo "From $HEAD_REPO:dev: allowed."
+          else
+            echo "::error::Pull requests into main must come from dev; this one comes from $HEAD_REPO:$HEAD_REF. Open it against dev instead."
+            exit 1
+          fi

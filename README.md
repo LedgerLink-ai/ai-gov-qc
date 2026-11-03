@@ -99,3 +99,12 @@ To add a check:
 3. Implement it in `packages/engine/src/checks/`, or add a tool adapter.
 4. Add its policy entry.
 5. Run `npm test` and `npm run conform`.
+
+### Branches and releases
+
+Changes reach `main` in two steps, each a pull request:
+
+1. A feature branch (for example `LCORE-210-limit-invariants`) into `dev`. The `ci` checks on Windows, macOS and Linux must pass.
+2. `dev` into `main`, merged with a merge commit so the two branches stay in step. The `ci` checks and `branch-policy` must pass; `branch-policy` fails any pull request into `main` that does not come from `dev`.
+
+Both branches take changes only through pull requests, with conversations resolved, and cannot be force-pushed or deleted. Release tags (`v*`) cannot be moved or deleted. When a merge into `main` changes the version in `package.json`, the release workflow tags it and publishes the package ([docs/PACKAGE.md](docs/PACKAGE.md)).
