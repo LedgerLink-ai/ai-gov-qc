@@ -1,18 +1,24 @@
-# Releases the installable package. Run by hand (Actions > release > Run
-# workflow) with the version both package.json files already carry on main.
-# It runs the full CI matrix, then tags v<version> and attaches
-# ledgerlink-qa-<version>.tgz and its SHA-256 to a GitHub release. Developers
-# install it with:
+# Releases the installable package automatically. Each time the ci workflow
+# passes on a push to main (a merged pull request), this reads the version in
+# package.json; if v<version> is not tagged yet, it tags that commit and
+# publishes a GitHub release with the package ci built and tested on that run
+# (ledgerlink-qa-<version>.tgz and its SHA-256). A merge that does not change
+# the version releases nothing. To release: bump the version in both
+# package.json files in the pull request.
+#
+# Developers install it with:
 #   npm install -g <release asset URL or downloaded .tgz>
 #   qa setup
+#
+# A release that failed (for example a GitHub outage) is retried with
+# "Re-run jobs" on its run in the Actions tab.
 name: release
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to release, e.g. 0.1.0 (must match package.json)'
-        required: true
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: read
@@ -22,40 +28,58 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  ci:
-    uses: ./.github/workflows/ci.yml
-
   release:
-    needs: ci
+    # Only a ci run that passed on every OS, for a push to main (not a pull request).
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write # create the tag and the release
+      actions: read # download the package from the ci run
+    env:
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - name: check the version
-        env:
-          VERSION: ${{ inputs.version }}
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: is this version released yet?
+        id: version
         run: |
+          VERSION=$(node -p "require('./package.json').version")
           node scripts/release.js --check "$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null; then
-            echo "v$VERSION is already released" >&2
-            exit 1
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::v$VERSION is already released; bump the version in package.json to release this change."
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
           fi
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - if: steps.version.outputs.release == 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: package
           path: out
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
       - name: create the release
+        if: steps.version.outputs.release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           cd out
           sha256sum -c "ledgerlink-qa-$VERSION.tgz.sha256"
+          SHA256=$(cut -c1-64 "ledgerlink-qa-$VERSION.tgz.sha256")
+          URL="https://github.com/$GITHUB_REPOSITORY/releases/download/v$VERSION/ledgerlink-qa-$VERSION.tgz"
+          printf '%s\n' \
+            "## Install (Windows, macOS or Linux; Node 20+, git, Python 3.9 to 3.14)" "" \
+            '```bash' "npm install -g $URL" "qa setup" '```' "" \
+            "SHA-256 of \`ledgerlink-qa-$VERSION.tgz\`: \`$SHA256\`" > notes.md
           gh release create "v$VERSION" \
-            --target "$GITHUB_SHA" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$HEAD_SHA" \
             --title "qa $VERSION" \
-            --notes "Install: npm install -g <this release's ledgerlink-qa-$VERSION.tgz>, then run: qa setup" \
+            --notes-file notes.md \
+            --generate-notes \
             "ledgerlink-qa-$VERSION.tgz" "ledgerlink-qa-$VERSION.tgz.sha256"
 
       # Optional: also publish to LedgerLink's CodeArtifact npm registry, so
@@ -65,6 +89,7 @@ jobs:
       #   with:
       #     role-to-assume: arn:aws:iam::417691602217:role/<qa-release-role>
       #     aws-region: us-east-2
-      # - run: |
+      # - if: steps.version.outputs.release == 'true'
+      #   run: |
       #     aws codeartifact login --tool npm --domain ledgerlink --domain-owner 417691602217 --repository ledgerlink
-      #     npm publish "out/ledgerlink-qa-${{ inputs.version }}.tgz"
+      #     npm publish "out/ledgerlink-qa-${{ steps.version.outputs.version }}.tgz"

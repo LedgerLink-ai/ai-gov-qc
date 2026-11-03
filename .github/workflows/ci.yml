@@ -1,13 +1,12 @@
 # Checks qc-workflows on Windows, macOS and Linux, then builds the installable
-# package and installs it, as a developer would. The release workflow calls
-# this first.
+# package and installs it, as a developer would. When it passes on main, the
+# release workflow publishes the package it built (when the version is new).
 name: ci
 
 on:
   pull_request:
   push:
     branches: [main]
-  workflow_call:
 
 permissions:
   contents: read

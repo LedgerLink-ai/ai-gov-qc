@@ -36,19 +36,19 @@ Any of these works; developers then run `npm install -g <location>` and `qa setu
 
 ## Releasing
 
-Nothing has been published yet. When qc-workflows is on GitHub:
+Releases are automatic. To release a change, bump the version in its pull request:
 
-1. Set the same new version in `package.json` and `packages/engine/package.json`, and in the `--require` versions of `templates/pre-commit-config.yaml`. Merge to main.
-2. Run **Actions › release › Run workflow** with that version.
+1. Set the same new version in `package.json` and `packages/engine/package.json` (and in `package-lock.json`). Raise the `--require` versions in `templates/pre-commit-config.yaml` only when repositories need the new version; a patch release usually does not.
+2. Merge the pull request into `main`.
 
-The release workflow first runs `ci.yml`, which on Windows, macOS and Linux:
+On the push to `main`, `ci.yml` runs on Windows, macOS and Linux:
 
 - lints, formats and builds
 - runs `qa setup` to get the pinned scanners
 - runs the tests and the conformance fixtures
 - builds the package, installs it globally from the file and runs it
 
-It then tags `v<version>` and attaches the `.tgz` and its SHA-256 to a GitHub release. Actions are pinned to commit SHAs.
+When it passes, `release.yml` reads the version in `package.json`. If `v<version>` is not tagged yet, it tags the merged commit and publishes a GitHub release with the package that `ci.yml` built and tested, its SHA-256, install instructions, and the pull requests since the last release. A merge that leaves the version unchanged releases nothing (the run says so). A failed release is retried with **Re-run jobs** on its run. Actions are pinned to commit SHAs.
 
 **A path to the file must be absolute or start with `./`.** npm reads `out/ledgerlink-qa-0.2.1.tgz` as a GitHub `owner/repo` and fails with `Permission denied (publickey)`.
 
