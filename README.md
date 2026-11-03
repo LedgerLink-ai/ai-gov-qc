@@ -4,7 +4,7 @@ LedgerLink QA harness: the governance registries and the `qa` check engine. The 
 
 Design: `LedgerLink QA Harness Technical Design` V2.2. Build order: `qa-harness-guide/IMPLEMENTATION_PLAN.md`.
 
-> **Local only.** This repository has no remote. Nothing is pushed, and no repository is created in the LedgerLink-ai organisation, until LedgerLink provides organisation-owner action (client request 1.1).
+> **Hosted for now at [bhushan-ht/ledgerlink-qa](https://github.com/bhushan-ht/ledgerlink-qa).** It moves to the LedgerLink-ai organisation once LedgerLink provides organisation-owner action (client request 1.1).
 
 ## Status (2 Nov 2026)
 
@@ -19,7 +19,7 @@ Design: `LedgerLink QA Harness Technical Design` V2.2. Build order: `qa-harness-
 - `qa prepr` with the pull request checks `pr.branch-name`, `pr.commits`, `pr.diff-size` and `tests.coverage`
 - the `repo-script` and `repo-tool` hooks for each repository's tests, type check and build
 - the hook sandbox
-- the `@ledgerlink/qa` package (`npm run package`), `qa setup`, `qa --require <version>`, and the `ci` and `release` workflows (not run yet)
+- the `@ledgerlink/qa` package (`npm run package`), `qa setup`, `qa --require <version>`, and the `ci` and `release` workflows (the first automatic release was v0.2.2, on 3 Nov)
 
 Tests: 69 pass. Conformance: 16 of 16 fixtures pass.
 
