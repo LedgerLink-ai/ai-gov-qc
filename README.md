@@ -86,6 +86,7 @@ scripts/                    local release, sandbox and Gitleaks config generator
 conformance/fixtures/       planted defects; tree files are .tmpl templates
 packages/engine/            the qa engine (published later as @ledgerlink/qa-mcp)
 docs/DECISIONS.md           defaults taken for open decisions
+docs/RULES.md               commit, pull request and AI agent rules for developers
 ```
 
 ### Conformance fixtures
