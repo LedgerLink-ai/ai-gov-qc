@@ -12,6 +12,7 @@ describe('configuration', () => {
       'path-tags.yaml',
       'policy.yaml',
       'registry/ai-registry.yaml',
+      'registry/repositories.yaml',
     ]);
   });
 
