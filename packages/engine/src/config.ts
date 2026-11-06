@@ -12,11 +12,13 @@ import {
   type Config,
   type Exemption,
   type PathTags,
+  type RepositoryAllowlist,
   type Policy,
 } from './types';
 
 const FILES = {
   registry: 'registry/ai-registry.yaml',
+  repositories: 'registry/repositories.yaml',
   pathTags: 'path-tags.yaml',
   checks: 'checks.yaml',
   policy: 'policy.yaml',
@@ -25,6 +27,7 @@ const FILES = {
 
 const SCHEMAS: Record<keyof typeof FILES, string> = {
   registry: 'ai-registry.schema.json',
+  repositories: 'repositories.schema.json',
   pathTags: 'path-tags.schema.json',
   checks: 'checks.schema.json',
   policy: 'policy.schema.json',
@@ -122,6 +125,12 @@ export function crossValidate(config: Omit<Config, 'hashes' | 'dir'>): string[] 
     if (!toolIds.has(agent.tool))
       problems.push(`ai-registry.yaml: agent ${agent.login} names unknown tool ${agent.tool}`);
   }
+  const repoNames = new Set<string>();
+  for (const r of config.repositories.repositories) {
+    const key = r.name.toLowerCase();
+    if (repoNames.has(key)) problems.push(`repositories.yaml: duplicate repository ${r.name}`);
+    repoNames.add(key);
+  }
   const exemptionIds = new Set<string>();
   for (const ex of config.exemptions) {
     if (exemptionIds.has(ex.id)) problems.push(`exemptions.yaml: duplicate id ${ex.id}`);
@@ -131,16 +140,22 @@ export function crossValidate(config: Omit<Config, 'hashes' | 'dir'>): string[] 
   return problems;
 }
 
+/** Only the repository allowlist, for the execution gate that runs before anything else loads. */
+export function loadAllowlist(explicitDir?: string): RepositoryAllowlist {
+  return loadYaml<RepositoryAllowlist>(resolveConfigDir(explicitDir), 'repositories', {});
+}
+
 export function loadConfig(explicitDir?: string): Config {
   const dir = resolveConfigDir(explicitDir);
   const hashes: Record<string, string> = {};
   const registry = loadYaml<AiRegistry>(dir, 'registry', hashes);
+  const repositories = loadYaml<RepositoryAllowlist>(dir, 'repositories', hashes);
   const pathTags = loadYaml<PathTags>(dir, 'pathTags', hashes);
   const checks = loadYaml<{ checks: CheckDefinition[] }>(dir, 'checks', hashes).checks;
   const policy = loadYaml<Policy>(dir, 'policy', hashes);
   const exemptions = loadYaml<{ exemptions: Exemption[] }>(dir, 'exemptions', hashes).exemptions;
 
-  const problems = crossValidate({ registry, pathTags, checks, policy, exemptions });
+  const problems = crossValidate({ registry, repositories, pathTags, checks, policy, exemptions });
   if (problems.length > 0) throw new ConfigError(`Configuration is inconsistent:\n  - ${problems.join('\n  - ')}`);
 
   const gitleaksConfig = join(dir, 'config', 'gitleaks.toml');
@@ -148,6 +163,7 @@ export function loadConfig(explicitDir?: string): Config {
   return {
     dir,
     registry,
+    repositories,
     pathTags,
     checks,
     policy,
