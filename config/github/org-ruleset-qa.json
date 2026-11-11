@@ -1,0 +1,59 @@
+{
+  "name": "qa: pull request gate",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": ["~DEFAULT_BRANCH", "refs/heads/dev", "refs/heads/develop", "refs/heads/release/*"],
+      "exclude": []
+    },
+    "repository_name": {
+      "include": [
+        "link_core",
+        "link_verify",
+        "fiat2stable-agent",
+        "link_router",
+        "transaction-translator-lib",
+        "link_quote",
+        "link_client_enterprise_wallet",
+        "link_blockchain_listener",
+        "blockchain-listener",
+        "gitops",
+        "link_access_layer",
+        "link-sdk",
+        "link_wallet_manager"
+      ],
+      "exclude": [],
+      "protected": true
+    }
+  },
+  "bypass_actors": [{ "actor_id": 1, "actor_type": "OrganizationAdmin", "bypass_mode": "pull_request" }],
+  "rules": [
+    { "type": "deletion" },
+    { "type": "non_fast_forward" },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 1,
+        "dismiss_stale_reviews_on_push": true,
+        "require_code_owner_review": true,
+        "require_last_push_approval": true,
+        "required_review_thread_resolution": true,
+        "allowed_merge_methods": ["merge", "squash", "rebase"]
+      }
+    },
+    {
+      "type": "workflows",
+      "parameters": {
+        "do_not_enforce_on_create": false,
+        "workflows": [
+          {
+            "path": ".github/workflows/qa-pr.yml",
+            "repository_id": 0,
+            "ref": "refs/tags/v0.2.3"
+          }
+        ]
+      }
+    }
+  ]
+}

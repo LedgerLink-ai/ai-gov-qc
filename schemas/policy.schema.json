@@ -39,6 +39,26 @@
       "type": "object",
       "additionalProperties": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" }
     },
+    "timeouts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tool_ms": { "type": "integer", "minimum": 1000 },
+        "tools": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 1000 } },
+        "git_ms": { "type": "integer", "minimum": 1000 },
+        "download_ms": { "type": "integer", "minimum": 1000 },
+        "network_retries": { "type": "integer", "minimum": 0, "maximum": 10 }
+      }
+    },
+    "performance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "parallelism": { "type": "integer", "minimum": 1, "maximum": 64 },
+        "cache": { "type": "boolean" }
+      }
+    },
+    "min_engine_version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
     "protected": {
       "type": "object",
       "additionalProperties": false,

@@ -74,6 +74,25 @@ export interface Policy {
   tools?: Record<string, string>;
   protected: { tags: Tag[]; globs: string[] };
   checks: Record<string, { mode: PolicyMode; block_from?: string }>;
+  /** Time limits; each can be overridden by an environment variable (see cli.ts). */
+  timeouts?: TimeoutPolicy;
+  /** Parallel checks and the local result cache. */
+  performance?: { parallelism?: number; cache?: boolean };
+  /** The oldest engine that understands this configuration. */
+  min_engine_version?: string;
+}
+
+export interface TimeoutPolicy {
+  /** Default limit for one scanner run. */
+  tool_ms?: number;
+  /** Per scanner, e.g. { semgrep: 600000 }. */
+  tools?: Record<string, number>;
+  /** Limit for one git command. */
+  git_ms?: number;
+  /** Limit for one download attempt in "qa setup" and for one report upload. */
+  download_ms?: number;
+  /** Attempts for a download or upload that fails for a network reason. */
+  network_retries?: number;
 }
 
 export interface PrPolicy {
@@ -100,9 +119,26 @@ export interface Exemption {
   expires: string;
 }
 
+export interface RepositoryEntry {
+  name: string;
+  enabled: boolean;
+  owner?: string;
+  approved_by?: string;
+  onboarded?: string;
+  note?: string;
+}
+
+/** Repositories permitted to run the engine (registry/repositories.yaml, issue #8). */
+export interface RepositoryAllowlist {
+  version: 1;
+  org: string;
+  repositories: RepositoryEntry[];
+}
+
 export interface Config {
   dir: string;
   registry: AiRegistry;
+  repositories: RepositoryAllowlist;
   pathTags: PathTags;
   checks: CheckDefinition[];
   policy: Policy;
@@ -146,6 +182,8 @@ export interface RunContext {
   pr?: PrInfo;
   /** Files this check should look at (by its tags and extra globs), excluding deletions. */
   filesFor(def: CheckDefinition): ChangedFile[];
+  /** Time limit for one run of this check's scanner, in milliseconds. */
+  timeoutFor(def: CheckDefinition): number;
 }
 
 export interface PrCommit {
@@ -212,6 +250,12 @@ export interface CheckRun {
   durationMs: number;
   findings: number;
   reason?: string;
+  /** The policy mode the check ran in. */
+  mode?: PolicyMode;
+  /** Scanner checks: the scanner's version. */
+  toolVersion?: string;
+  /** Scanner checks: files answered from the local result cache. */
+  cachedFiles?: number;
 }
 
 export interface RunResult {
@@ -231,6 +275,10 @@ export interface RunResult {
   startedAt: string;
   durationMs: number;
   exitCode: 0 | 1 | 2;
+  /** Which stages the run covered (pre-commit 0-1, pre-push 2, pre-PR 0-3, all when undefined). */
+  stages?: number[];
+  /** Local result cache use, when the cache was on. */
+  cache?: { hits: number; misses: number; writes: number };
 }
 
 export class ToolUnavailableError extends Error {
@@ -240,6 +288,14 @@ export class ToolUnavailableError extends Error {
   ) {
     super(`${tool} is not available: ${detail}`);
     this.name = 'ToolUnavailableError';
+  }
+}
+
+/** A command-line value that is refused before anything runs (unsafe or malformed). */
+export class InputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InputError';
   }
 }
 
