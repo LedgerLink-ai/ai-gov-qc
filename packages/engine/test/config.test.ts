@@ -1,6 +1,9 @@
-import { crossValidate } from '../src/config';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { compareVersions, crossValidate, loadConfig } from '../src/config';
 import { resolveTags } from '../src/tags';
-import { config } from './helpers';
+import { CONFIG_DIR, config } from './helpers';
 
 describe('configuration', () => {
   it('loads the registries in this repository and they agree with each other', () => {
@@ -63,5 +66,59 @@ describe('path tags', () => {
 
   it('does not apply another repository’s paths', () => {
     expect(tags('link_router', ['src/transaction/retry.ts'])).toEqual({ 'src/transaction/retry.ts': [] });
+  });
+});
+
+describe('configuration compatibility', () => {
+  const copy = (): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'qa-config-copy-'));
+    for (const item of [
+      'policy.yaml',
+      'checks.yaml',
+      'path-tags.yaml',
+      'exemptions.yaml',
+      'registry',
+      'schemas',
+      'config',
+    ])
+      cpSync(join(CONFIG_DIR, item), join(dir, item), { recursive: true });
+    return dir;
+  };
+
+  it('refuses a configuration that needs a newer qa, with instructions', () => {
+    const dir = copy();
+    try {
+      const policy = join(dir, 'policy.yaml');
+      writeFileSync(
+        policy,
+        readFileSync(policy, 'utf8').replace(/^min_engine_version: .*$/m, "min_engine_version: '99.0.0'"),
+      );
+      expect(() => loadConfig(dir)).toThrow(/needs qa 99\.0\.0 or later; qa \d+\.\d+\.\d+ is installed/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses a configuration with keys this qa does not know, instead of ignoring them', () => {
+    const dir = copy();
+    try {
+      writeFileSync(
+        join(dir, 'policy.yaml'),
+        `${readFileSync(join(dir, 'policy.yaml'), 'utf8')}\nfuture_setting: true\n`,
+      );
+      expect(() => loadConfig(dir)).toThrow(/policy\.yaml does not match its schema/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('compares versions numerically', () => {
+    expect(compareVersions('0.10.0', '0.9.9')).toBe(1);
+    expect(compareVersions('1.2.3', '1.2.3')).toBe(0);
+    expect(compareVersions('0.2.2', '0.2.3')).toBe(-1);
+  });
+
+  it('names a --config directory without configuration instead of falling back silently', () => {
+    expect(() => loadConfig(tmpdir())).toThrow(/has no policy\.yaml and checks\.yaml/);
   });
 });

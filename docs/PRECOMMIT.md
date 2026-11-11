@@ -34,7 +34,7 @@ The Gitleaks rules added to the defaults are in `config/gitleaks.toml`, generate
 - `solana-keypair-array`
 - `bip39-mnemonic`, built from the BIP39 English wordlist, which is checked against its published SHA-256
 
-Local hooks can be bypassed with `git commit --no-verify`. That is accepted: the pull request runs every check again, where it cannot be skipped. (The prepare-commit-msg hook still runs with `--no-verify`, so messages are still pre-filled.)
+Local hooks can be bypassed with `git commit --no-verify`, and a developer controls their own machine, so the hooks are fast feedback, not the control. The control is the pull request gate: `.github/workflows/qa-pr.yml` runs every qa check again on GitHub's runners with the configuration released with qa, and rulesets make it a required check that only organisation administrators can bypass ([ENFORCEMENT.md](ENFORCEMENT.md), which lists every limitation of local hooks). (The prepare-commit-msg hook still runs with `--no-verify`, so messages are still pre-filled.)
 
 ### Commit messages
 
@@ -61,7 +61,7 @@ One effect of pre-filling: in the editor, saving without typing no longer aborts
 
 ## 1. Once per machine
 
-Everything comes from one package, `@ledgerlink/qa` (`ledgerlink-qa-<version>.tgz`). It works the same on Windows, macOS and Linux. Requirements: Node 20 or later, git, and Python 3.9 to 3.14.
+Everything comes from one package, `@ledgerlink/qa` (`ledgerlink-qa-<version>.tgz`). It works the same on Windows, macOS and Linux. Requirements: Node 20 or later, git, and Python 3.11 to 3.14.
 
 ```bash
 npm install -g <full path to ledgerlink-qa-0.2.1.tgz, its URL, or @ledgerlink/qa@0.2.1>
