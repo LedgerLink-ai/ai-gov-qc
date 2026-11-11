@@ -1,9 +1,10 @@
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { assertPackageName, windowsCommandLine } from '../src/cli';
-import { configSourceProblem, isWithin } from '../src/gate';
+import { configSourceProblem, isWithin, realOrResolved } from '../src/gate';
+import { windowsPathProgram } from '../src/tools-home';
 import { assertSafeUrl } from '../src/net';
 import { parseBaseline } from '../src/report';
 import { requirementProblems } from '../src/setup';
@@ -40,6 +41,31 @@ describe('configuration trust (never the repository being checked)', () => {
   it('compares real paths, so a different spelling of the same folder is still inside', () => {
     expect(isWithin(join(repo, 'a', '..', 'b'), repo)).toBe(true);
     expect(isWithin(outside, repo)).toBe(false);
+  });
+
+  it('resolves a path that does not exist yet through its nearest existing folder', () => {
+    // macOS: tmpdir() is under /var, a link to /private/var; Windows runners: an 8.3 short name.
+    const real = realOrResolved(repo);
+    expect(realOrResolved(join(repo, 'not', 'yet'))).toBe(join(real, 'not', 'yet'));
+    expect(isWithin(join(repo, 'not', 'yet'), realpathSync.native(repo))).toBe(true);
+    expect(isWithin(join(outside, 'not', 'yet'), repo)).toBe(false);
+  });
+});
+
+describe('finding tools on PATH on Windows', () => {
+  const home = mkdtempSync(join(tmpdir(), 'qa-home-'));
+  afterAll(() => rmSync(home, { recursive: true, force: true }));
+
+  it('runs the program a "qa setup" launcher points to, since .cmd files need a shell', () => {
+    mkdirSync(join(home, 'bin'), { recursive: true });
+    mkdirSync(join(home, 'venv', 'Scripts'), { recursive: true });
+    writeFileSync(join(home, 'bin', 'semgrep.cmd'), '@echo off\r\n');
+    writeFileSync(join(home, 'venv', 'Scripts', 'semgrep.exe'), '');
+    writeFileSync(join(home, 'bin', 'gitleaks.exe'), '');
+    const path = [join(home, 'nothing-here'), join(home, 'bin')].join(delimiter);
+    expect(windowsPathProgram('semgrep', path)).toBe(join(home, 'venv', 'Scripts', 'semgrep.exe'));
+    expect(windowsPathProgram('gitleaks', path)).toBe(join(home, 'bin', 'gitleaks.exe'));
+    expect(windowsPathProgram('pre-commit', path)).toBeUndefined();
   });
 });
 
@@ -128,6 +154,25 @@ describe('pinned dependencies and hook versions', () => {
         permissions: expect.anything(),
       });
       expect(JSON.stringify(wf.permissions)).not.toMatch(/write-all/);
+    }
+  });
+
+  // GitHub rejects the whole workflow file when a context is used where it is
+  // not available; job-level env and if accept github, needs, strategy, matrix,
+  // vars, secrets and inputs only (not runner, steps, job or env).
+  it('workflows use only the contexts GitHub allows in job-level env and if', () => {
+    for (const file of readdirSync(workflowsDir).filter((f) => f.endsWith('.yml'))) {
+      const wf = parseYaml(readFileSync(join(workflowsDir, file), 'utf8')) as {
+        jobs?: Record<string, { env?: Record<string, unknown>; if?: unknown }>;
+      };
+      for (const [id, job] of Object.entries(wf.jobs ?? {})) {
+        const text = JSON.stringify({ env: job.env ?? {}, if: job.if ?? '' });
+        expect({ file, job: id, bad: text.match(/\b(runner|steps|job|env)\.[A-Za-z_]/g) ?? [] }).toEqual({
+          file,
+          job: id,
+          bad: [],
+        });
+      }
     }
   });
 

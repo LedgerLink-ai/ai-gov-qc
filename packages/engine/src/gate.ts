@@ -1,6 +1,6 @@
 import { readFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { relative, isAbsolute } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import type { RepositoryAllowlist } from './types';
 
@@ -124,11 +124,24 @@ function githubActionsIdentity(env: GateEnv): GateDecision | RepoIdentity {
   return id;
 }
 
-function realOrResolved(p: string): string {
-  try {
-    return realpathSync.native(p);
-  } catch {
-    return p;
+/**
+ * The real path of `p`. For a path that does not exist (yet), the real path
+ * of its nearest existing ancestor plus the rest, so /var/x/new on macOS
+ * (/var is a link to /private/var) and C:\Users\RUNNER~1\new on Windows (an
+ * 8.3 short name) compare equal to their resolved spellings.
+ */
+export function realOrResolved(p: string): string {
+  let current = resolve(p);
+  const rest: string[] = [];
+  for (;;) {
+    try {
+      return join(realpathSync.native(current), ...rest);
+    } catch {
+      const parent = dirname(current);
+      if (parent === current) return resolve(p);
+      rest.unshift(basename(current));
+      current = parent;
+    }
   }
 }
 

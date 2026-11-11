@@ -69,10 +69,14 @@ jobs:
     env:
       QA_VERSION: ${{ inputs.qa-version || '0.2.3' }}
       QA_REPOSITORY: ${{ inputs.qa-repository || 'LedgerLink-ai/ai-gov-qc' }}
-      QA_HOME: ${{ runner.temp }}/qa-home
-      QA_OUT: ${{ runner.temp }}/qa-out
       QA_LOG_FORMAT: json
     steps:
+      # The runner context is not available in job-level env, so the
+      # runner-temp paths are set here for every later step.
+      - name: set paths
+        run: |
+          echo "QA_HOME=$RUNNER_TEMP/qa-home" >> "$GITHUB_ENV"
+          echo "QA_OUT=$RUNNER_TEMP/qa-out" >> "$GITHUB_ENV"
       # qa never runs code from a fork, and a required check must not pass
       # without running: a pull request from a fork fails here. A maintainer
       # brings the change into a branch of the repository instead.
