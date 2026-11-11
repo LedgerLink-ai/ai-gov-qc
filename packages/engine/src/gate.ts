@@ -1,6 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { relative, resolve, isAbsolute } from 'node:path';
+import { relative, isAbsolute } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import type { RepositoryAllowlist } from './types';
 
@@ -82,7 +82,14 @@ function insideGitWorkTree(root: string): boolean {
 /** Conformance fixtures are loose folders in the temp directory, never a git work tree. */
 function isConformanceRoot(root: string, env: GateEnv): boolean {
   if (env.QA_CONFORMANCE !== '1') return false;
-  const rel = relative(resolve(tmpdir()), resolve(root));
+  // Compare real paths: on macOS the temp directory is /var/..., a link to /private/var/...;
+  // on Windows it can be an 8.3 short name.
+  let rel: string;
+  try {
+    rel = relative(realpathSync.native(tmpdir()), realpathSync.native(root));
+  } catch {
+    return false;
+  }
   if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return false;
   return !insideGitWorkTree(root);
 }
@@ -119,14 +126,15 @@ function githubActionsIdentity(env: GateEnv): GateDecision | RepoIdentity {
 
 /** Decide whether the engine may run for the repository at `root`. */
 export function gate(allowlist: RepositoryAllowlist, root: string, env: GateEnv = process.env): GateDecision {
+  // Conformance fixtures run in CI too (GitHub Actions included), so this comes first.
+  if (isConformanceRoot(root, env)) return { run: true, repo: { owner: allowlist.org, name: 'conformance' } };
+
   if (env.GITHUB_ACTIONS === 'true') {
     const id = githubActionsIdentity(env);
     if ('run' in id) return id;
     const verdict = isAllowed(allowlist, id);
     return verdict.ok ? { run: true, repo: id } : { run: false, reason: verdict.reason, repo: id };
   }
-
-  if (isConformanceRoot(root, env)) return { run: true, repo: { owner: allowlist.org, name: 'conformance' } };
 
   const failClosed = env.CI !== undefined && env.CI !== '' && env.CI !== 'false' && env.CI !== '0';
   const url = insideGitWorkTree(root) ? git(root, ['remote', 'get-url', 'origin']) : undefined;
