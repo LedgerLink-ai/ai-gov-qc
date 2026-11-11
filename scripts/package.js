@@ -65,12 +65,19 @@ const README = (version) => `# ${NAME} ${version}
 
 LedgerLink's local checks for every repository: the \`qa\` command behind the
 pre-commit, prepare-commit-msg, pre-push and pre-PR hooks. Works on Windows, macOS and
-Linux. Needs Node 20+, git and Python 3.9 to 3.14.
+Linux. Needs Node 20+, git and Python 3.11 to 3.14.
 
 ## Install, once per machine
 
-    npm install -g <ledgerlink-qa-${version}.tgz, its URL, or ${NAME}@${version}>
+Verify the file first (its SHA-256 and the build provenance signed by the
+release workflow), then install it without running package scripts:
+
+    sha256sum -c ledgerlink-qa-${version}.tgz.sha256
+    gh attestation verify ledgerlink-qa-${version}.tgz --repo LedgerLink-ai/ai-gov-qc
+    npm install -g --ignore-scripts ./ledgerlink-qa-${version}.tgz
     qa setup
+
+Operations, rollback and maintenance: docs/OPERATIONS.md in the qa repository.
 
 \`qa setup\` installs pre-commit, Semgrep and Gitleaks at the versions pinned in
 \`config/policy.yaml\` into ~/.ledgerlink-qa (Gitleaks is checked against its
