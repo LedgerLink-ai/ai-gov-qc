@@ -16,7 +16,7 @@ gh release download "v$VERSION" --repo LedgerLink-ai/ai-gov-qc --pattern "ledger
 sha256sum -c "ledgerlink-qa-$VERSION.tgz.sha256"                              # integrity
 gh attestation verify "ledgerlink-qa-$VERSION.tgz" --repo LedgerLink-ai/ai-gov-qc  # built by release.yml from a commit of this repository
 npm install -g --ignore-scripts "./ledgerlink-qa-$VERSION.tgz"
-qa setup                    # pre-commit, Semgrep, Gitleaks at the pinned versions, hash-checked; the git template
+qa setup                    # pre-commit, Semgrep, Gitleaks at the pinned versions, hash-checked; the hooks for every repository
 git config --global ledgerlink.assistedBy "<tool>, <model>, <version>"    # "none" without AI tools
 qa doctor                   # in a repository: READY, or what is missing
 ```
@@ -31,14 +31,20 @@ and compare with the `.sha256` file.
 set `PIP_INDEX_URL` to an internal mirror; hashes are still checked, so the
 mirror cannot substitute files.
 
-**Per repository.** Copy `templates/pre-commit-config.yaml` (hooks) and
+**Per repository.** Nothing for the hooks: `qa setup` connects them in every
+clone on the machine, and they use the default configuration that ships with
+qa unless the repository has a `.pre-commit-config.yaml` of its own (copy
+`templates/pre-commit-config.yaml` only to change what runs there). Copy
 `templates/qa-pr-caller.yml` (pull request gate, where the organisation ruleset
 does not already require it), add the repository to
 `registry/repositories.yaml` with `enabled: true` through a pull request, and
 release qa (the allowlist ships inside the package).
 
-**What qa writes.** `qa setup`: `~/.ledgerlink-qa` (or `QA_HOME`) and, only if
-unset, git's global `init.templateDir`. Hooks: nothing in the repository; the
+**What qa writes.** `qa setup`: `~/.ledgerlink-qa` (or `QA_HOME`), including
+the hook scripts in `<qa home>/hooks`, and git's global `core.hooksPath`
+pointing at them, only if it is unset or already qa's (`qa setup
+--uninstall` removes both; `--no-global-hooks` sets up the older per-clone
+git template instead). Hooks: nothing in the repository; the
 prepare-commit-msg hook edits only the commit message git hands it. Scanner
 results are cached in `<qa home>/cache`. `--out` and CI write
 `results.sarif` and `evidence.json` (CI default `.qa/out`, which repositories

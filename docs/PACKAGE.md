@@ -64,7 +64,7 @@ npm install -g --prefix <empty folder> ./out/ledgerlink-qa-0.2.1.tgz --offline
 
 `--prefix` and `--home` keep the test away from the machine's own setup. The sandbox in [PRECOMMIT.md](PRECOMMIT.md) uses the package the same way: `npm run sandbox -- refresh` rebuilds it, unpacks it into `../sandbox/qa-package`, and points the clone's hooks at it.
 
-To remove an installation: `npm uninstall -g @ledgerlink/qa`, delete `~/.ledgerlink-qa`, and unset `init.templateDir` if `qa setup` set it (`git config --global --unset init.templateDir`).
+To remove an installation: `qa setup --uninstall` (removes the hooks for every repository and unsets git's global `core.hooksPath`), then `npm uninstall -g @ledgerlink/qa` and delete `~/.ledgerlink-qa`. With `--no-global-hooks`, unset `init.templateDir` instead if `qa setup` set it (`git config --global --unset init.templateDir`).
 
 ## Checked on 3 Nov 2026 (Windows 11 only)
 

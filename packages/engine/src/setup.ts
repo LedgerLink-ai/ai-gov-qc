@@ -16,6 +16,7 @@ import { versionIn } from './adapters/tools/workdir';
 import { envMs } from './exec';
 import { assertSafeUrl, fetchWithRetry } from './net';
 import { redact } from './redact';
+import { globalHooksDir, removeHookScripts, sameDir, writeHookScripts } from './hooks';
 import { binDir, isWindows, qaHome, toolBinary, venvDir, venvProgram } from './tools-home';
 import type { Config } from './types';
 
@@ -28,13 +29,21 @@ import type { Config } from './types';
 //                        pinned and checked against its SHA-256 (--require-hashes)
 //   gitleaks             the release archive for this OS and CPU, checked
 //                        against config/gitleaks_<version>_checksums.txt
-//   git template         connects the hooks in every new clone (only when
-//                        init.templateDir is not set yet)
+//   global hooks         <home>/hooks, git's global core.hooksPath: connects
+//                        the hooks in every repository on the machine, old
+//                        clones and new, with nothing copied into them (hooks.ts)
+//   git template         instead, with --no-global-hooks: connects the hooks
+//                        in every new clone (only when init.templateDir is not
+//                        set yet)
 
 export interface SetupOptions {
   python: boolean;
   gitleaks: boolean;
   gitTemplate: boolean;
+  /** Connect the hooks for every repository through git's global core.hooksPath (default). */
+  globalHooks?: boolean;
+  /** Remove the global hooks instead of installing anything. */
+  uninstall?: boolean;
   /** A gitleaks release archive already downloaded (no network). */
   gitleaksArchive?: string;
   /** Where gitleaks releases are downloaded from (a mirror); <base>/v<version>/<asset>. */
@@ -356,6 +365,84 @@ function setupGitTemplate(row: Row): boolean {
   return set.ok;
 }
 
+const globalGet = (key: string): string | undefined => {
+  const r = run('git', ['config', '--global', '--get', key]);
+  return r.ok && r.out ? r.out : undefined;
+};
+
+/**
+ * Connects the hooks for every repository on the machine: writes the scripts
+ * into <home>/hooks and points git's global core.hooksPath at them. A
+ * core.hooksPath set to anything else is left alone.
+ */
+function setupGlobalHooks(row: Row): boolean {
+  const dir = globalHooksDir();
+  const current = globalGet('core.hooksPath');
+  if (current && !sameDir(current, dir)) {
+    row(
+      'FAIL',
+      'global hooks',
+      `git's global core.hooksPath is already "${current}"; left as it is. To connect the qa hooks for every repository, unset it (git config --global --unset core.hooksPath) and run "qa setup" again, or run "qa setup --no-global-hooks" to connect new clones only`,
+    );
+    return false;
+  }
+  try {
+    writeHookScripts(dir);
+  } catch (err) {
+    row('FAIL', 'global hooks', `could not write ${dir}: ${(err as Error).message}`);
+    return false;
+  }
+  const set = run('git', ['config', '--global', 'core.hooksPath', dir.split('\\').join('/')]);
+  if (!set.ok) {
+    row('FAIL', 'global hooks', `git config --global core.hooksPath failed: ${set.out.slice(0, 300)}`);
+    return false;
+  }
+  row(
+    'ok',
+    'global hooks',
+    `${dir}: every repository on this machine; QA runs only in opted-in LedgerLink-ai repositories`,
+  );
+  // The git template an earlier "qa setup" made is not needed any more.
+  const tpl = globalGet('init.templateDir');
+  const ownTemplate = join(qaHome(), 'git-template');
+  if (tpl && sameDir(tpl, ownTemplate)) {
+    run('git', ['config', '--global', '--unset', 'init.templateDir']);
+    rmSync(ownTemplate, { recursive: true, force: true });
+    row('ok', 'git template', `removed ${ownTemplate}: the global hooks replace it`);
+  } else if (tpl) {
+    const tplDir = tpl.replace(/^~(?=[\\/])/, process.env.USERPROFILE ?? process.env.HOME ?? '~');
+    const fromPreCommit =
+      existsSync(join(tplDir, 'hooks', 'pre-commit')) &&
+      readFileSync(join(tplDir, 'hooks', 'pre-commit'), 'utf8').includes('pre-commit');
+    if (fromPreCommit)
+      row(
+        'WARN',
+        'git template',
+        `init.templateDir is ${tpl}, which copies pre-commit's hooks into new clones; not needed with the global hooks (harmless, but slower outside LedgerLink). Remove it: git config --global --unset init.templateDir`,
+      );
+  }
+  return true;
+}
+
+/** "qa setup --uninstall": removes the global hooks, if they are qa's. */
+export function uninstallGlobalHooks(print: (s: string) => void): number {
+  const dir = globalHooksDir();
+  const current = globalGet('core.hooksPath');
+  print(`qa setup --uninstall: hooks in ${dir}`);
+  if (current && sameDir(current, dir)) {
+    const unset = run('git', ['config', '--global', '--unset', 'core.hooksPath']);
+    if (!unset.ok) {
+      print(`  FAIL  global hooks   git config --global --unset core.hooksPath failed: ${unset.out.slice(0, 300)}`);
+      return 1;
+    }
+    print("  ok    global hooks   git's global core.hooksPath unset; every repository uses its own .git/hooks again");
+  } else if (current) print(`  ok    global hooks   core.hooksPath is "${current}", not qa's; left as it is`);
+  else print('  ok    global hooks   not set');
+  removeHookScripts(dir);
+  print(`result: DONE. The tools stay in ${qaHome()}; delete that folder to remove them too.`);
+  return 0;
+}
+
 function pathAdvice(row: Row): void {
   const dir = binDir();
   const onPath = (process.env.PATH ?? '')
@@ -372,6 +459,7 @@ function pathAdvice(row: Row): void {
 }
 
 export async function setup(config: Config, opts: SetupOptions, print: (s: string) => void): Promise<number> {
+  if (opts.uninstall) return uninstallGlobalHooks(print);
   const pins = config.policy.tools ?? {};
   let problems = 0;
   const row: Row = (status, name, detail) => {
@@ -386,7 +474,8 @@ export async function setup(config: Config, opts: SetupOptions, print: (s: strin
 
   const pythonOk = opts.python ? setupPython(config, pins, row) : true;
   if (opts.gitleaks && pins.gitleaks) await setupGitleaks(config, pins.gitleaks, opts, row);
-  if (opts.gitTemplate && pythonOk) setupGitTemplate(row);
+  if (opts.globalHooks ?? true) setupGlobalHooks(row);
+  else if (opts.gitTemplate && pythonOk) setupGitTemplate(row);
   pathAdvice(row);
   print(
     problems > 0 ? `result: NOT DONE (${problems} problem(s))` : 'result: DONE. Check a repository with: qa doctor',
