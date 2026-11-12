@@ -51,6 +51,7 @@ import {
   setGitTimeout,
   toPosix,
 } from './sources';
+import { globalHooksDir, hookScriptsInstalled, QA_HOOKS, runHook, sameDir } from './hooks';
 import { setup } from './setup';
 import { resolveTags } from './tags';
 import { toolBinary } from './tools-home';
@@ -79,8 +80,13 @@ Usage:
   qa prepr      [--base <ref>] [--coverage <files>] [options]
                                         Stage 0-3 checks on everything the pull request contains, plus its
                                         branch name, commit messages, size and coverage (before opening a PR)
-  qa setup      [setup options]         Install pre-commit, Semgrep and Gitleaks at the pinned versions and the
-                                        git template, on Windows, macOS or Linux (once per machine)
+  qa setup      [setup options]         Install pre-commit, Semgrep and Gitleaks at the pinned versions and connect
+                                        the hooks for every repository on this machine, on Windows, macOS or Linux
+                                        (once per machine; no file is copied into any repository)
+  qa hook       <hook> [args...]        Run one git hook (pre-commit, prepare-commit-msg, pre-push): what the hooks
+                                        "qa setup" installs call. Runs the repository's own .git/hooks copy, then,
+                                        in an opted-in repository, the checks from its .pre-commit-config.yaml, else
+                                        from the default configuration that ships with qa
   qa doctor     [--root <dir>]          Check this machine and repository are set up for the local hooks
   qa repo-tool  [--pr-files] <package>[:<bin>] [args...]
                                         Run a tool from the repository's node_modules, e.g. eslint, prettier,
@@ -133,7 +139,10 @@ Setup options:
   --home <dir>          Where the tools go (default: $QA_HOME, else ~/.ledgerlink-qa)
   --no-python           Do not install pre-commit and Semgrep
   --no-gitleaks         Do not install Gitleaks
-  --no-git-template     Do not set up the git template
+  --no-global-hooks     Do not connect the hooks for every repository (git's global core.hooksPath); set up
+                        the git template instead, so each new clone is connected by pre-commit's own hooks
+  --no-git-template     With --no-global-hooks: do not set up the git template either
+  --uninstall           Remove the hooks "qa setup" connected for every repository (the tools stay)
   --gitleaks-archive <f>  Install Gitleaks from this downloaded release archive (no network)
   --download-base <url> Download Gitleaks from this mirror: <url>/v<version>/<asset>
 
@@ -199,6 +208,8 @@ const BOOLEAN_FLAGS = new Set([
   'no-python',
   'no-gitleaks',
   'no-git-template',
+  'no-global-hooks',
+  'uninstall',
   'no-cache',
 ]);
 
@@ -668,15 +679,34 @@ function doctor(flags: Flags): number {
   );
   tool('semgrep', TOOL_ADAPTERS.semgrep.version(), false, 'fast rule set at pre-push; optional locally, always in CI');
 
-  // A git template with pre-commit's hooks connects them in every new clone,
-  // so "pre-commit install" is not needed per repository.
+  // The global hooks connect every repository on the machine (hooks.ts).
+  const globalGet = spawnSync('git', ['config', '--global', '--get', 'core.hooksPath'], { encoding: 'utf8' });
+  const globalPath = globalGet.status === 0 ? globalGet.stdout.trim() : '';
+  const hooksDir = globalHooksDir();
+  const globalHooks = globalPath !== '' && sameDir(globalPath, hooksDir) && hookScriptsInstalled(hooksDir);
+  if (globalHooks) row('ok', 'global hooks', `${hooksDir} connects the hooks in every repository`);
+  else if (globalPath && sameDir(globalPath, hooksDir))
+    row('FAIL', 'global hooks', `core.hooksPath is ${globalPath}, but qa's scripts are not there; run "qa setup"`);
+  else if (globalPath)
+    row(
+      'WARN',
+      'global hooks',
+      `core.hooksPath is "${globalPath}", not qa's, so each repository has to connect the hooks itself`,
+    );
+  else row('WARN', 'global hooks', 'not set up; run "qa setup" to connect the hooks in every repository');
+
+  // Without the global hooks: a git template with pre-commit's hooks connects
+  // them in every new clone, so "pre-commit install" is not needed per repository.
   const tpl = spawnSync('git', ['config', '--global', '--get', 'init.templateDir'], { encoding: 'utf8' });
   const tplDir = tpl.status === 0 ? tpl.stdout.trim().replace(/^~(?=[\\/])/, homedir()) : '';
   const tplHooks = HOOK_TYPES.filter((h) => {
     const file = join(tplDir, 'hooks', h);
     return tplDir !== '' && existsSync(file) && readFileSync(file, 'utf8').includes('pre-commit');
   });
-  if (tplHooks.length === HOOK_TYPES.length) row('ok', 'git template', `${tplDir} connects the hooks in new clones`);
+  if (globalHooks) {
+    // Not needed; setup reports a leftover template.
+  } else if (tplHooks.length === HOOK_TYPES.length)
+    row('ok', 'git template', `${tplDir} connects the hooks in new clones`);
   else if (tplHooks.length > 0)
     row(
       'WARN',
@@ -716,13 +746,21 @@ function doctor(flags: Flags): number {
     const res = spawnSync('git', ['config', '--get', 'core.hooksPath'], { cwd: repoRoot, encoding: 'utf8' });
     const hooksPath = res.status === 0 ? res.stdout.trim() : '';
     const huskyDir = join(repoRoot, '.husky');
-    row(
-      existsSync(join(repoRoot, '.pre-commit-config.yaml')) ? 'ok' : 'FAIL',
-      '.pre-commit-config.yaml',
-      existsSync(join(repoRoot, '.pre-commit-config.yaml'))
-        ? 'present'
-        : 'missing; copy templates/pre-commit-config.yaml',
-    );
+    const hasConfig = existsSync(join(repoRoot, '.pre-commit-config.yaml'));
+    // Connected by the global hooks: this repository has not set a core.hooksPath of its own.
+    const viaGlobal = globalHooks && hooksPath !== '' && sameDir(hooksPath, hooksDir);
+    const huskyCallsQa = (hook: string): boolean =>
+      existsSync(join(huskyDir, hook)) && readFileSync(join(huskyDir, hook), 'utf8').includes(`qa hook ${hook}`);
+    const needsConfig = !viaGlobal && !(HUSKY_PATH.test(hooksPath) && HOOK_TYPES.every(huskyCallsQa));
+    if (hasConfig) row('ok', '.pre-commit-config.yaml', 'present; used instead of the default configuration');
+    else if (!needsConfig)
+      row('ok', '.pre-commit-config.yaml', `not needed; the default configuration from qa ${ENGINE_VERSION} is used`);
+    else
+      row(
+        'FAIL',
+        '.pre-commit-config.yaml',
+        'missing; run "qa setup" to connect the hooks for every repository with the default configuration, or copy templates/pre-commit-config.yaml',
+      );
     const configText = existsSync(join(repoRoot, '.pre-commit-config.yaml'))
       ? readFileSync(join(repoRoot, '.pre-commit-config.yaml'), 'utf8')
       : '';
@@ -736,21 +774,32 @@ function doctor(flags: Flags): number {
           : `${ENGINE_VERSION} installed; the repository requires ${required}: npm install -g @ledgerlink/qa@${required}`,
       );
 
-    if (HUSKY_PATH.test(hooksPath)) {
-      // husky owns core.hooksPath; its .husky/<hook> scripts call pre-commit.
+    if (viaGlobal) {
+      row('ok', 'hooks', `connected by the global hooks (${hooksDir}); this repository's own .git/hooks still run`);
+    } else if (HUSKY_PATH.test(hooksPath)) {
+      // husky owns core.hooksPath, which overrides the global hooks; its
+      // .husky/<hook> scripts call "qa hook <hook>" or pre-commit.
       row('ok', 'husky', `hooks run from ${hooksPath}`);
       for (const hook of HOOK_TYPES) {
         const script = join(huskyDir, hook);
         const text = existsSync(script) ? readFileSync(script, 'utf8') : '';
-        if (!text.includes(`pre-commit run --hook-stage ${hook}`))
-          row('FAIL', `${hook} hook`, `.husky/${hook} does not call "pre-commit run --hook-stage ${hook}"`);
+        if (!text.includes(`pre-commit run --hook-stage ${hook}`) && !text.includes(`qa hook ${hook}`))
+          row(
+            'FAIL',
+            `${hook} hook`,
+            `.husky/${hook} does not call "qa hook ${hook}" (husky overrides the global hooks, so add that line)`,
+          );
         else if (!existsSync(resolve(repoRoot, hooksPath, hook)))
           row('FAIL', `${hook} hook`, `husky has not generated ${hooksPath}/${hook}; run "yarn install"`);
         else row('ok', `${hook} hook`, `installed through husky (.husky/${hook})`);
       }
     } else {
       if (hooksPath)
-        row('FAIL', 'core.hooksPath', `set to "${hooksPath}"; pre-commit will not install. Unset it first.`);
+        row(
+          'FAIL',
+          'core.hooksPath',
+          `set to "${hooksPath}" in this repository, which overrides the global hooks; unset it (git config --unset core.hooksPath)`,
+        );
       // git runs .git/hooks, connected by "pre-commit install".
       const direct = HOOK_TYPES.map((hook) => {
         const path = execFileSync('git', ['rev-parse', '--git-path', `hooks/${hook}`], { cwd: repoRoot })
@@ -990,6 +1039,26 @@ function gateExit(command: string, root: string, configDir?: string): number | u
   return 0;
 }
 
+/**
+ * "qa hook <name> [args]", called by the hooks "qa setup" installs for every
+ * repository (hooks.ts). Its own problems never block a commit.
+ */
+function hookCommand(args: string[]): number {
+  const [name, ...rest] = args;
+  if (!name || !(QA_HOOKS as readonly string[]).includes(name))
+    throw new UsageError(`qa hook needs one of ${QA_HOOKS.join(', ')}${name ? `; got "${name}"` : ''}`);
+  const warn = (message: string): void => {
+    process.stderr.write(`qa: ${redact(message)}
+`);
+  };
+  try {
+    return runHook(name, rest, { gateExit: (command, root) => gateExit(command, root), warn });
+  } catch (err) {
+    warn(`the ${name} hook could not run (${(err as Error).message}); skipped. "qa doctor" shows what is wrong.`);
+    return 0;
+  }
+}
+
 function cacheCommand(positionals: string[]): number {
   const [action] = positionals;
   if (action === 'clear') {
@@ -1018,7 +1087,7 @@ function configureLogging(argv: string[]): void {
 
 export async function main(argv: string[]): Promise<number> {
   try {
-    configureLogging(argv[0] === 'repo-tool' || argv[0] === 'repo-script' ? [] : argv);
+    configureLogging(['repo-tool', 'repo-script', 'hook'].includes(argv[0] ?? '') ? [] : argv);
   } catch (err) {
     process.stderr.write(`qa: ${(err as Error).message}\n`);
     return 2;
@@ -1041,6 +1110,8 @@ export async function main(argv: string[]): Promise<number> {
         return argv[0] === 'prepare-commit-msg' ? 0 : 2;
       }
     }
+    // Everything after the hook name belongs to git, not to qa.
+    if (argv[0] === 'hook') return hookCommand(argv.slice(1));
     // Everything after the package name belongs to the tool, not to qa.
     if (argv[0] === 'repo-tool' || argv[0] === 'repo-script') {
       const skipped = gateExit(argv[0], rootOf({}));
@@ -1076,6 +1147,8 @@ export async function main(argv: string[]): Promise<number> {
             python: !flags['no-python'],
             gitleaks: !flags['no-gitleaks'],
             gitTemplate: !flags['no-git-template'],
+            globalHooks: !flags['no-global-hooks'],
+            uninstall: Boolean(flags.uninstall),
             gitleaksArchive: str(flags, 'gitleaks-archive'),
             downloadBase: str(flags, 'download-base'),
           },

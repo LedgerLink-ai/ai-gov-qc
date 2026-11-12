@@ -7,7 +7,8 @@ import { delimiter, join, resolve } from 'node:path';
 //
 //   <home>/venv          a private Python environment with pre-commit and Semgrep
 //   <home>/bin           gitleaks, plus pre-commit and semgrep launchers (add it to PATH)
-//   <home>/git-template  the git template that connects the hooks in new clones
+//   <home>/hooks         the hooks for every repository (git's global core.hooksPath; hooks.ts)
+//   <home>/git-template  with --no-global-hooks: the git template that connects new clones
 //
 // <home> is $QA_HOME, else ~/.ledgerlink-qa.
 

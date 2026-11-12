@@ -9,14 +9,14 @@ rulesets that only organisation administrators can bypass.
 The git hooks run on the developer's machine, which the developer controls.
 They are skipped or defeated by:
 
-| How                                                                 | Effect                                                          |
-| ------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `git commit --no-verify`, `git push --no-verify`                    | pre-commit and pre-push hooks do not run                        |
-| Not running `pre-commit install`, or `core.hooksPath` set elsewhere | no hooks at all                                                 |
-| Editing `.pre-commit-config.yaml` or `.git/hooks/*`                 | different or no checks (the file is a protected path in review) |
-| Changing the `origin` remote                                        | the local gate (identity from `origin`) skips the repository    |
-| An old qa, or a missing scanner                                     | `--require` stops an old qa; a missing scanner defers to CI     |
-| The commit itself (rebase, amend, `commit-tree`)                    | hooks see only what git hands them                              |
+| How                                                       | Effect                                                          |
+| --------------------------------------------------------- | --------------------------------------------------------------- |
+| `git commit --no-verify`, `git push --no-verify`          | pre-commit and pre-push hooks do not run                        |
+| Not running `qa setup`, or `core.hooksPath` set elsewhere | no hooks at all                                                 |
+| Editing `.pre-commit-config.yaml` or `.git/hooks/*`       | different or no checks (the file is a protected path in review) |
+| Changing the `origin` remote                              | the local gate (identity from `origin`) skips the repository    |
+| An old qa, or a missing scanner                           | `--require` stops an old qa; a missing scanner defers to CI     |
+| The commit itself (rebase, amend, `commit-tree`)          | hooks see only what git hands them                              |
 
 None of these reach the pull request gate, which runs on GitHub's runners
 with qa and its configuration from a verified release.
