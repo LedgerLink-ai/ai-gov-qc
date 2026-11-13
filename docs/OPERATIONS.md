@@ -44,7 +44,10 @@ release qa (the allowlist ships inside the package).
 the hook scripts in `<qa home>/hooks`, and git's global `core.hooksPath`
 pointing at them, only if it is unset or already qa's (`qa setup
 --uninstall` removes both; `--no-global-hooks` sets up the older per-clone
-git template instead). Hooks: nothing in the repository; the
+git template instead). Hooks: nothing in the working tree. In a repository
+without its own `.pre-commit-config.yaml`, the default configuration is copied
+to `.git/ledgerlink-qa/pre-commit-config.yaml` (git metadata, never committed),
+because pre-commit cannot use a configuration on another drive on Windows. The
 prepare-commit-msg hook edits only the commit message git hands it. Scanner
 results are cached in `<qa home>/cache`. `--out` and CI write
 `results.sarif` and `evidence.json` (CI default `.qa/out`, which repositories
