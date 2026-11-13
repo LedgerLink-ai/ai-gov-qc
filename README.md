@@ -17,6 +17,7 @@ Design: `LedgerLink QA Harness Technical Design` V2.2. Build order: `qa-harness-
 - `sast.semgrep` at pre-push
 - `qa prepush` and `qa doctor`
 - `qa prepr` with the pull request checks `pr.branch-name`, `pr.commits`, `pr.diff-size` and `tests.coverage`
+- pull request conventions (AIQC-86): `pr.title`, `pr.ticket` and `pr.description` check the title, ticket reference and description in the pull request check, with a standard template ([docs/PR-CONVENTIONS.md](docs/PR-CONVENTIONS.md))
 - the `repo-script` and `repo-tool` hooks for each repository's tests, type check and build
 - the hook sandbox
 - the `@ledgerlink/qa` package (`npm run package`), `qa setup`, `qa --require <version>`, and the `ci` and `release` workflows (the first automatic release was v0.2.2, on 3 Nov)
