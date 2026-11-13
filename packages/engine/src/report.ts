@@ -221,7 +221,8 @@ export function toText(result: RunResult): string {
   const scopeOf = new Map(result.checkDefinitions.map((d) => [d.id, d.scope]));
   for (const f of [...result.findings].sort((a, b) => order(a) - order(b))) {
     const label = f.blocking ? 'BLOCK ' : f.level === 'note' ? 'NOTE  ' : 'REPORT';
-    const whole = scopeOf.get(f.checkId) === 'pr' ? '(pull request)' : '(commit)';
+    const scope = scopeOf.get(f.checkId);
+    const whole = scope === 'pr' || scope === 'pr-text' ? '(pull request)' : '(commit)';
     const where = f.path ? `${f.path}${f.line ? `:${f.line}${f.column ? `:${f.column}` : ''}` : ''}` : whole;
     const ids = [...f.controls, ...f.rules].join(', ');
     lines.push(`  ${label} ${f.checkId}  ${where}  ${f.message}${ids ? ` [${ids}]` : ''}`);

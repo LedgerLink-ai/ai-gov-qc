@@ -19,6 +19,7 @@ import {
   type FileSource,
   type Finding,
   type PrInfo,
+  type PrText,
   type RunContext,
   type RunMode,
   type RunResult,
@@ -38,6 +39,7 @@ export interface RunOptions {
   source: FileSource;
   commitMessage?: string;
   pr?: PrInfo;
+  prText?: PrText;
   /** Fingerprints from the repository's dated baseline (.qa/baseline.sarif). */
   baseline?: Set<string>;
   /** Restrict the run to these scopes, e.g. only `commit` for a commit message. */
@@ -87,6 +89,7 @@ function buildContext(opts: RunOptions): RunContext {
     source: opts.source,
     commitMessage: opts.commitMessage,
     pr: opts.pr,
+    prText: opts.prText,
     filesFor(def: CheckDefinition): ChangedFile[] {
       let extra = extraMatchers.get(def.id);
       if (!extra) {
@@ -120,6 +123,8 @@ function notApplicable(def: CheckDefinition, ctx: RunContext, opts: RunOptions):
       return ctx.commitMessage === undefined ? 'no commit message in this run' : undefined;
     case 'pr':
       return ctx.pr === undefined ? STAGE_RUNS[3] : undefined;
+    case 'pr-text':
+      return ctx.prText === undefined ? 'runs on the pull request, or with --pr-title and --pr-body-file' : undefined;
     case 'release':
       return `scope ${def.scope} runs in the gate or release job`;
     case 'file':

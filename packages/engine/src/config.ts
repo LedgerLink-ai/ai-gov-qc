@@ -165,6 +165,29 @@ export function crossValidate(config: Omit<Config, 'hashes' | 'dir'>): string[] 
     if (repoNames.has(key)) problems.push(`repositories.yaml: duplicate repository ${r.name}`);
     repoNames.add(key);
   }
+  // Pull request conventions: every pattern compiles, and per-repository
+  // overrides name repositories in the allowlist.
+  const pr = config.policy.pr;
+  const patterns: Array<[string, string | undefined]> = [
+    ['pr.branch_pattern', pr?.branch_pattern],
+    ['pr.title_pattern', pr?.title_pattern],
+    ...Object.entries(pr?.repos ?? {}).map(([name, o]): [string, string | undefined] => [
+      `pr.repos.${name}.title_pattern`,
+      o.title_pattern,
+    ]),
+  ];
+  for (const [where, pattern] of patterns) {
+    if (pattern === undefined) continue;
+    try {
+      new RegExp(pattern);
+    } catch (err) {
+      problems.push(`policy.yaml: ${where} is not a valid regular expression (${(err as Error).message})`);
+    }
+  }
+  for (const name of Object.keys(pr?.repos ?? {})) {
+    if (!repoNames.has(name.toLowerCase()))
+      problems.push(`policy.yaml: pr.repos.${name} is not a repository in repositories.yaml`);
+  }
   const exemptionIds = new Set<string>();
   for (const [tool, pin] of Object.entries(config.policy.tools ?? {})) {
     if (!/^\d+\.\d+\.\d+$/.test(pin)) problems.push(`policy.yaml: tools.${tool} is not an exact version`);

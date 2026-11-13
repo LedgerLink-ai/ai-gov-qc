@@ -21,6 +21,9 @@
 #   - the baseline is read from the base branch, so a pull request cannot
 #     baseline its own findings
 #   - any check that cannot run fails the job (exit 2), never passes it
+#   - the pull request's title and description are checked against the
+#     conventions in policy.yaml (pr.title, pr.ticket, pr.description), read
+#     from GitHub's event payload; editing them re-runs the check (AIQC-86)
 name: qa-pr
 
 on:
@@ -171,6 +174,22 @@ jobs:
                 ...rows,
               ].join("\n"));
             ' "$QA_OUT/evidence.json" >> "$GITHUB_STEP_SUMMARY"
+            # What to fix, from results.sarif (code scanning is often off on
+            # private repositories, so the summary is where developers look).
+            if [ -f "$QA_OUT/results.sarif" ]; then
+              node -e '
+                const s = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+                const results = (s.runs?.[0]?.results ?? []).filter((r) => r.level !== "note");
+                if (results.length === 0) process.exit(0);
+                const cell = (t) => String(t ?? "").replace(/\|/g, "/").replace(/\r?\n/g, " ");
+                const rows = results.map((r) => {
+                  const where = r.locations?.[0]?.physicalLocation?.artifactLocation?.uri ?? "pull request";
+                  const state = r.suppressions ? "exempted" : r.properties?.blocking ? "blocking" : "reported";
+                  return `| ${cell(r.ruleId)} | ${state} | ${cell(where)} | ${cell(r.message?.text)} |`;
+                });
+                console.log(["", "#### Findings", "", "| check | state | where | what to fix |", "| --- | --- | --- | --- |", ...rows].join("\n"));
+              ' "$QA_OUT/results.sarif" >> "$GITHUB_STEP_SUMMARY"
+            fi
           else
             echo "qa did not run here (the repository is not opted in, or the pull request comes from a fork)." >> "$GITHUB_STEP_SUMMARY"
           fi

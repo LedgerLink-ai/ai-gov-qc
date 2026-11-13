@@ -3,6 +3,7 @@ import { commitTrailer } from './commit-trailer';
 import { contentLint } from './content-lint';
 import { mcpAllowlist } from './mcp-allowlist';
 import { prBranchName, prCommits, prDiffSize, testsCoverage } from './pr-rules';
+import { prDescription, prTicket, prTitle } from './pr-text';
 import { protectedPaths } from './protected-paths';
 
 export type NativeCheck = (ctx: RunContext, def: CheckDefinition) => Finding[] | Promise<Finding[]>;
@@ -17,4 +18,7 @@ export const NATIVE_CHECKS: Record<string, NativeCheck> = {
   'pr.commits': prCommits,
   'pr.diff-size': prDiffSize,
   'tests.coverage': testsCoverage,
+  'pr.title': prTitle,
+  'pr.ticket': prTicket,
+  'pr.description': prDescription,
 };

@@ -30,6 +30,36 @@ pr:
   diff_ignore: ['**/yarn.lock', '**/package-lock.json', '**/pnpm-lock.yaml', '**/*.snap']
   coverage_min_lines: 80
 
+  # The pull request's own title and description (pr.title, pr.ticket,
+  # pr.description; AIQC-86). Checked in the PR gate from GitHub's event, and by
+  # "qa prepr --pr-title ... --pr-body-file ..." before opening one.
+  title_pattern: '^[A-Z][A-Z0-9]+-\d+: \S'
+  title_example: '"<TICKET-123>: <short description>", e.g. "LCORE-212: Add idempotency key to refund endpoint"'
+  # Jira project keys a ticket reference may use. Empty: any key of the form
+  # ABC-123. Set them per repository under repos.<name>.ticket_projects.
+  ticket_projects: []
+  # Ticket links in a description must point here.
+  ticket_url: 'https://ledgerlink.atlassian.net/browse/'
+  # The sections templates/pull_request_template.md has; aliases accept the
+  # headings of the developer rules template (docs/RULES.md).
+  description_sections:
+    - name: Summary
+    - name: Ticket
+      aliases: ['Linked ticket']
+    - name: Changes
+    - name: Testing
+      aliases: ['How it was tested']
+    - name: Security Impact
+    - name: Checklist
+      aliases: ['Security checklist']
+      checklist: true
+  # Per repository: any of title_pattern, title_example, ticket_projects,
+  # ticket_url, description_sections. Changes need code-owner review.
+  #   repos:
+  #     link_core:
+  #       ticket_projects: [LCORE]
+  repos: {}
+
 # Time limits. A scanner that runs past its limit is stopped: locally the
 # check is deferred to CI with a notice; in CI it is an engine error (exit 2),
 # never a pass. Environment overrides: QA_TOOL_TIMEOUT_MS (every scanner),
@@ -113,6 +143,14 @@ checks:
   pr.diff-size:
     mode: report
   tests.coverage:
+    mode: report
+  # Pull request title, ticket and description (AIQC-86): report first; the
+  # blocking date is agreed with LedgerLink.
+  pr.title:
+    mode: report
+  pr.ticket:
+    mode: report
+  pr.description:
     mode: report
   paths.protected:
     mode: report

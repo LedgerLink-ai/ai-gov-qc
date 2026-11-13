@@ -98,6 +98,36 @@ checks:
     rules: []
     source: Local checkpoints, stage 3 pre-PR (PR-specific checks)
 
+  - id: pr.title
+    title: 'Pull request title follows the convention ("<TICKET-123>: <description>" by default)'
+    kind: native
+    stage: 3
+    scope: pr-text
+    tags: all
+    controls: []
+    rules: []
+    source: AIQC-86, pull request conventions (GitHub issue 16)
+
+  - id: pr.ticket
+    title: Pull request references a ticket from an accepted project, linked to the ticket site
+    kind: native
+    stage: 3
+    scope: pr-text
+    tags: all
+    controls: []
+    rules: []
+    source: AIQC-86, pull request conventions (GitHub issue 16)
+
+  - id: pr.description
+    title: Pull request description follows the template, every required section filled in
+    kind: native
+    stage: 3
+    scope: pr-text
+    tags: all
+    controls: []
+    rules: []
+    source: AIQC-86, pull request conventions (GitHub issue 16)
+
   - id: tests.coverage
     title: Line coverage threshold
     kind: native

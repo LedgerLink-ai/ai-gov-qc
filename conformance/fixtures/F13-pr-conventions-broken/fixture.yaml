@@ -1,0 +1,39 @@
+id: F13
+title: A pull request with no ticket, an off-convention title and the template left empty is reported (AIQC-86)
+repo: link_core
+actor: human
+as_of: 2027-01-08
+pr_title: fixed the refund bug
+pr_body: |
+  <!-- LedgerLink pull request template -->
+
+  ## Summary
+
+  <!-- What changed and why. -->
+
+  ## Ticket
+
+  <!-- The ticket key. -->
+
+  ## Changes
+
+  -
+
+  ## Testing
+
+  -
+
+  ## Security Impact
+
+  ## Checklist
+
+  - [ ] Coding conventions followed
+  - [ ] QA checks passed
+exact: true
+expect:
+  - check: pr.title
+    blocking: false
+  - check: pr.ticket
+    blocking: false
+  - check: pr.description
+    blocking: false
