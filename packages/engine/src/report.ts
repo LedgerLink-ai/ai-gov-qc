@@ -1,13 +1,15 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { arch, platform } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { EvaluatedFinding, RunResult } from './types';
+import { redact, redactDeep } from './redact';
+import { ConfigError, type EvaluatedFinding, type RunResult } from './types';
 
 const SARIF_SCHEMA = 'https://json.schemastore.org/sarif-2.1.0.json';
 const FINGERPRINT_KEY = 'qaFingerprint/v1';
 export const BASELINE_FILE = '.qa/baseline.sarif';
 
 function messageText(f: EvaluatedFinding): string {
-  return f.fixHint ? `${f.message} Fix: ${f.fixHint}` : f.message;
+  return redact(f.fixHint ? `${f.message} Fix: ${f.fixHint}` : f.message);
 }
 
 /** SARIF 2.1.0: the one report format every caller reads (Technical Design 10.4). */
@@ -72,7 +74,7 @@ export function toSarif(result: RunResult): object {
               .filter((r) => r.status === 'skipped' || r.status === 'error')
               .map((r) => ({
                 level: r.status === 'error' ? 'error' : 'note',
-                message: { text: `${r.checkId}: ${r.status}${r.reason ? ` (${r.reason})` : ''}` },
+                message: { text: redact(`${r.checkId}: ${r.status}${r.reason ? ` (${r.reason})` : ''}`) },
               })),
           },
         ],
@@ -82,9 +84,13 @@ export function toSarif(result: RunResult): object {
   };
 }
 
-/** Run metadata for the evidence store; findings themselves live in SARIF. */
-export function toEvidence(result: RunResult): object {
-  return {
+/**
+ * Run metadata for the evidence store and central reporting; findings
+ * themselves live in SARIF. Schema v1 fields are unchanged; later fields are
+ * additions only, so v1 readers keep working.
+ */
+export function toEvidence(result: RunResult, extra: { runId?: string } = {}): object {
+  return redactDeep({
     schema: 'ledgerlink-qa/evidence/v1',
     engine_version: result.engineVersion,
     config_hashes: result.configHashes,
@@ -103,25 +109,75 @@ export function toEvidence(result: RunResult): object {
       duration_ms: r.durationMs,
       findings: r.findings,
       ...(r.reason ? { reason: r.reason } : {}),
+      ...(r.mode ? { mode: r.mode } : {}),
+      ...(r.toolVersion ? { tool_version: r.toolVersion } : {}),
+      ...(r.cachedFiles !== undefined ? { cached_files: r.cachedFiles } : {}),
     })),
     summary: summarise(result),
     engine_errors: result.engineErrors,
     exit_code: result.exitCode,
     ai_calls: [],
+    // Additions (issue #15).
+    ...(extra.runId ? { run_id: extra.runId } : {}),
+    profiles: profiles(result),
+    failed_validations: failedValidations(result),
+    host: { os: platform(), arch: arch(), node: process.versions.node },
+    ...(result.cache ? { cache: result.cache } : {}),
+  });
+}
+
+/**
+ * The profiles a run had on: the technology and risk tags of the changed
+ * files (path-tags.yaml), the stages it covered, and every check that was
+ * switched on, with the mode it ran in.
+ */
+export function profiles(result: RunResult): object {
+  return {
+    tags: result.tags,
+    stages: result.stages ?? [0, 1, 2, 3],
+    enabled_checks: result.checkRuns
+      .filter((r) => r.mode !== 'off')
+      .map((r) => ({ id: r.checkId, mode: r.mode ?? 'report', ran: r.status !== 'skipped' })),
   };
 }
 
+/** What failed: blocking findings, and checks that could not run. */
+export function failedValidations(result: RunResult): object[] {
+  return [
+    ...result.findings
+      .filter((f) => f.blocking)
+      .map((f) => ({
+        kind: 'finding',
+        check: f.checkId,
+        sub_rule: f.ruleId,
+        path: f.path,
+        line: f.line,
+        fingerprint: f.fingerprint,
+        controls: f.controls,
+        rules: f.rules,
+      })),
+    ...result.checkRuns
+      .filter((r) => r.status === 'error')
+      .map((r) => ({ kind: 'engine-error', check: r.checkId, reason: r.reason })),
+  ];
+}
+
 export function summarise(result: RunResult): Record<string, number> {
+  const count = (s: string): number => result.checkRuns.filter((r) => r.status === s).length;
   return {
     findings: result.findings.length,
     blocking: result.findings.filter((f) => f.blocking).length,
     baselined: result.findings.filter((f) => f.suppressedBy === 'baseline').length,
     exempted: result.findings.filter((f) => f.suppressedBy === 'exemption').length,
+    checks_passed: count('passed'),
+    checks_failed: count('failed'),
+    checks_skipped: count('skipped'),
+    checks_errored: count('error'),
   };
 }
 
 export function toJson(result: RunResult): object {
-  return {
+  return redactDeep({
     engine_version: result.engineVersion,
     repo: result.repo,
     sha: result.sha,
@@ -150,7 +206,8 @@ export function toJson(result: RunResult): object {
     })),
     checks: result.checkRuns,
     engine_errors: result.engineErrors,
-  };
+    profiles: profiles(result),
+  });
 }
 
 export function toText(result: RunResult): string {
@@ -186,7 +243,7 @@ export function toText(result: RunResult): string {
         ? `BLOCKED (${s.blocking} blocking)`
         : 'PASS';
   lines.push(`result: ${verdict}`);
-  return lines.join('\n');
+  return redact(lines.join('\n'));
 }
 
 /**
@@ -202,26 +259,47 @@ export function worthShowing(result: RunResult): boolean {
   );
 }
 
-export function writeOutputs(result: RunResult, outDir: string): void {
+export function writeOutputs(result: RunResult, outDir: string, extra: { runId?: string } = {}): void {
   mkdirSync(outDir, { recursive: true });
   writeFileSync(join(outDir, 'results.sarif'), JSON.stringify(toSarif(result), null, 2));
-  writeFileSync(join(outDir, 'evidence.json'), JSON.stringify(toEvidence(result), null, 2));
+  writeFileSync(join(outDir, 'evidence.json'), JSON.stringify(toEvidence(result, extra), null, 2));
+}
+
+const MAX_BASELINE_BYTES = 20 * 1024 * 1024;
+
+/**
+ * Fingerprints from baseline text (SARIF written by "qa baseline"). A file
+ * that is not such SARIF is a configuration error, never silently ignored:
+ * a damaged baseline must not change what blocks.
+ */
+export function parseBaseline(text: string, where = BASELINE_FILE): Set<string> {
+  if (text.length > MAX_BASELINE_BYTES) throw new ConfigError(`${where} is larger than 20 MB`);
+  let log: { version?: unknown; runs?: unknown };
+  try {
+    log = JSON.parse(text) as typeof log;
+  } catch {
+    throw new ConfigError(`${where} is not valid JSON; regenerate it with "qa baseline"`);
+  }
+  if (!log || log.version !== '2.1.0' || !Array.isArray(log.runs))
+    throw new ConfigError(`${where} is not a SARIF 2.1.0 file written by "qa baseline"`);
+  const set = new Set<string>();
+  for (const r of log.runs as Array<{ results?: unknown }>) {
+    if (!Array.isArray(r?.results)) continue;
+    for (const res of r.results as Array<{ partialFingerprints?: Record<string, unknown> }>) {
+      const fp = res?.partialFingerprints?.[FINGERPRINT_KEY];
+      if (typeof fp !== 'string' || !/^[0-9a-f]{32}$/.test(fp))
+        throw new ConfigError(`${where} has a result without a valid ${FINGERPRINT_KEY} fingerprint`);
+      set.add(fp);
+    }
+  }
+  return set;
 }
 
 export function readBaseline(root: string): Set<string> {
   const file = join(root, BASELINE_FILE);
-  const set = new Set<string>();
-  if (!existsSync(file)) return set;
-  const log = JSON.parse(readFileSync(file, 'utf8')) as {
-    runs?: Array<{ results?: Array<{ partialFingerprints?: Record<string, string> }> }>;
-  };
-  for (const r of log.runs ?? []) {
-    for (const res of r.results ?? []) {
-      const fp = res.partialFingerprints?.[FINGERPRINT_KEY];
-      if (fp) set.add(fp);
-    }
-  }
-  return set;
+  if (!existsSync(file)) return new Set<string>();
+  if (statSync(file).size > MAX_BASELINE_BYTES) throw new ConfigError(`${BASELINE_FILE} is larger than 20 MB`);
+  return parseBaseline(readFileSync(file, 'utf8'));
 }
 
 export function writeBaseline(root: string, result: RunResult): string {

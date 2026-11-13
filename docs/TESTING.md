@@ -109,8 +109,28 @@ Result on 22 Oct 2026: `PASS`. The real `AGENTS.md` produces no findings. Workfl
 
 Undo your edits afterwards, then run `npm test`.
 
+## Automated tests
+
+`npm test` (after `npm run build`; CI runs it on Linux, macOS and Windows):
+
+| Kind                   | Where                                                                                                                                                                                        |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unit                   | `config`, `runner`, `content-lint`, `mcp-allowlist`, `commit-trailer`, `pr-rules`, `prepare-message`, `setup`, `exec`, `redact`                                                              |
+| Integration            | `git.test.ts` (real git repositories), `runner-hardening.test.ts` (timeouts, parallel checks, cache, evidence), `publish.test.ts` (a local collector)                                        |
+| End to end             | `cli-e2e.test.ts` (the built CLI: exit codes, gate, configuration trust, JSON logs, baseline in CI, agent rules), `conformance.test.ts` and `npm run conform` (fixtures through API and CLI) |
+| Git hook lifecycle     | `hooks-lifecycle.test.ts`: hooks installed in a clone; commit, message pre-fill, block, `--no-verify`, push, push blocked by Semgrep                                                         |
+| Security               | `security.test.ts` (configuration trust, injection, URLs, baseline, pinned actions, hooks and Python dependencies, release check), `exec.test.ts`, `redact.test.ts`                          |
+| Negative authorization | `gate.test.ts` (29 cases), `cli-e2e.test.ts` (not allowlisted, configuration from the repository)                                                                                            |
+| Performance            | `performance.test.ts` (guards), `scripts/benchmark.js` in CI ([PERFORMANCE.md](PERFORMANCE.md))                                                                                              |
+| Cross-platform         | the `ci` workflow matrix: ubuntu, windows, macos                                                                                                                                             |
+
+Every check profile has automated tests: each check has unit tests and a
+conformance fixture, each hook stage (pre-commit, prepare-commit-msg,
+pre-push, pre-PR) runs end to end.
+
 ## What is not covered yet
 
-- The git hooks on the developer's machine are done; see [PRECOMMIT.md](PRECOMMIT.md).
 - The MCP server and `qa init` (week 3).
-- The pull-request checks and the CI gate (weeks 5–6).
+- The pull request gate runs in the target repositories once the rulesets are
+  applied ([ENFORCEMENT.md](ENFORCEMENT.md)); its steps are the CLI paths the
+  end-to-end tests cover.

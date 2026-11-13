@@ -1,0 +1,193 @@
+# The pull request gate: every qa check, independently of the developer's
+# machine (issue #15, bypass prevention). Local hooks can be skipped with
+# --no-verify; this cannot, once it is a required status check.
+#
+# Two ways to make it mandatory on an opted-in LedgerLink-ai repository
+# (docs/ENFORCEMENT.md):
+#   1. An organisation ruleset, "Require workflows to pass before merging",
+#      naming this file (it runs on pull_request in the target repository).
+#   2. A stub workflow in the repository (templates/qa-pr-caller.yml) that
+#      calls this one, plus "qa / pull request checks" as a required status
+#      check in the branch ruleset.
+#
+# What it guarantees:
+#   - qa comes from a GitHub release of this repository, checked against its
+#     SHA-256 and its build provenance attestation (signed by release.yml),
+#     never from the repository being checked
+#   - the policies, allowlist and rules are the ones released with qa: the
+#     engine refuses --config and QA_CONFIG_DIR in GitHub Actions
+#   - the repository's identity comes from the Actions environment, so only
+#     allowlisted LedgerLink-ai repositories run; forks never do
+#   - the baseline is read from the base branch, so a pull request cannot
+#     baseline its own findings
+#   - any check that cannot run fails the job (exit 2), never passes it
+name: qa-pr
+
+on:
+  workflow_call:
+    inputs:
+      qa-version:
+        description: The qa release to run. Pinned; roll back by naming an earlier release.
+        type: string
+        default: '0.2.3'
+      qa-repository:
+        description: Where qa is released.
+        type: string
+        default: LedgerLink-ai/ai-gov-qc
+      upload-sarif:
+        description: Upload results to GitHub code scanning (needs code scanning on the repository).
+        type: boolean
+        default: true
+      report-url:
+        description: Optional https endpoint that receives evidence.json (central reporting).
+        type: string
+        default: ''
+    secrets:
+      QA_REPORT_TOKEN:
+        description: Bearer token for report-url.
+        required: false
+  pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qa-pr-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qa:
+    name: pull request checks
+    # The workflow's own repository is not an opted-in repository; its CI tests qa itself.
+    if: github.repository != 'LedgerLink-ai/ai-gov-qc' && github.event.pull_request
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write # upload SARIF to code scanning
+    env:
+      QA_VERSION: ${{ inputs.qa-version || '0.2.3' }}
+      QA_REPOSITORY: ${{ inputs.qa-repository || 'LedgerLink-ai/ai-gov-qc' }}
+      QA_LOG_FORMAT: json
+    steps:
+      # The runner context is not available in job-level env, so the
+      # runner-temp paths are set here for every later step.
+      - name: set paths
+        run: |
+          echo "QA_HOME=$RUNNER_TEMP/qa-home" >> "$GITHUB_ENV"
+          echo "QA_OUT=$RUNNER_TEMP/qa-out" >> "$GITHUB_ENV"
+      # qa never runs code from a fork, and a required check must not pass
+      # without running: a pull request from a fork fails here. A maintainer
+      # brings the change into a branch of the repository instead.
+      - name: refuse pull requests from forks
+        env:
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          if [ "$HEAD_REPO" != "$GITHUB_REPOSITORY" ]; then
+            echo "::error::Pull requests from forks ($HEAD_REPO) are not checked; push the branch to $GITHUB_REPOSITORY and open the pull request from there."
+            exit 1
+          fi
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # The pull request's own head commit (not the merge commit), with
+          # history, so qa sees the real commits and the merge base.
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+
+      - name: install qa (checksum and provenance verified)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$QA_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::qa-version must be MAJOR.MINOR.PATCH, got '$QA_VERSION'"
+            exit 2
+          fi
+          mkdir -p "$RUNNER_TEMP/qa-pkg"
+          cd "$RUNNER_TEMP/qa-pkg"
+          PKG="ledgerlink-qa-$QA_VERSION.tgz"
+          gh release download "v$QA_VERSION" --repo "$QA_REPOSITORY" --pattern "$PKG" --pattern "$PKG.sha256"
+          sha256sum -c "$PKG.sha256"
+          gh attestation verify "$PKG" --repo "$QA_REPOSITORY" \
+            --signer-workflow "$QA_REPOSITORY/.github/workflows/release.yml"
+          npm install -g --no-audit --no-fund --ignore-scripts "./$PKG"
+          qa version
+
+      - name: install the scanners (pinned, hash-checked)
+        run: |
+          set -euo pipefail
+          qa setup --no-git-template
+          echo "$QA_HOME/bin" >> "$GITHUB_PATH"
+
+      - name: qa checks
+        id: qa
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          QA_PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+          QA_PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          QA_REPORT_URL: ${{ inputs.report-url }}
+          QA_REPORT_TOKEN: ${{ secrets.QA_REPORT_TOKEN }}
+        run: |
+          set -uo pipefail
+          git fetch --no-tags origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+          set +e
+          qa prepr --base "origin/$BASE_REF" --mode ci --out "$QA_OUT"
+          code=$?
+          set -e
+          echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+          if [ -f "$QA_OUT/results.sarif" ]; then echo "sarif=true" >> "$GITHUB_OUTPUT"; fi
+          case "$code" in
+            0) echo "qa: PASS" ;;
+            1) echo "::error::qa found blocking findings; see the log above and the code scanning results" ;;
+            *) echo "::error::qa could not run every check (exit $code); a check that cannot run is never a pass" ;;
+          esac
+          exit "$code"
+
+      - name: summary
+        if: always()
+        run: |
+          if [ -f "$QA_OUT/evidence.json" ]; then
+            node -e '
+              const e = require(process.argv[1]);
+              const s = e.summary;
+              const rows = e.checks.map((c) => `| ${c.id} | ${c.status} | ${c.mode ?? ""} | ${c.findings} | ${(c.reason ?? "").replace(/\|/g, "/")} |`);
+              console.log([
+                `### qa ${e.engine_version}: exit ${e.exit_code}`,
+                ``,
+                `${s.blocking} blocking, ${s.findings} findings (${s.baselined} baselined, ${s.exempted} exempted); checks: ${s.checks_passed} passed, ${s.checks_failed} failed, ${s.checks_skipped} skipped, ${s.checks_errored} errors.`,
+                ``,
+                `Tags: ${e.tags.join(", ") || "(none)"}. Configuration: ${Object.entries(e.config_hashes).map(([f, h]) => f + " " + h.slice(0, 12)).join(", ")}.`,
+                ``,
+                `| check | status | mode | findings | note |`,
+                `| --- | --- | --- | --- | --- |`,
+                ...rows,
+              ].join("\n"));
+            ' "$QA_OUT/evidence.json" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "qa did not run here (the repository is not opted in, or the pull request comes from a fork)." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: upload to code scanning
+        if: always() && inputs.upload-sarif != false && steps.qa.outputs.sarif == 'true'
+        continue-on-error: true # code scanning may be off for the repository; the evidence artifact still has the results
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          sarif_file: ${{ runner.temp }}/qa-out/results.sarif
+          category: ledgerlink-qa
+
+      - name: keep the evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: qa-evidence
+          path: ${{ runner.temp }}/qa-out/
+          if-no-files-found: ignore
+          retention-days: 90

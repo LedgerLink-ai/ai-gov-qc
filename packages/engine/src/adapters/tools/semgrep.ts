@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process';
+import { runProcess, scrubbedEnv, ToolTimeoutError } from '../../exec';
+import { redact } from '../../redact';
 import {
   ToolUnavailableError,
   type ChangedFile,
@@ -9,7 +11,7 @@ import {
 } from '../../types';
 import type { ToolAdapter } from './index';
 import { toolBinary } from '../../tools-home';
-import { cachedVersion, versionIn, withCheckedFiles } from './workdir';
+import { cachedVersion, hashFiles, listRuleFiles, versionIn, withCheckedFiles, PROBE_TIMEOUT_MS } from './workdir';
 
 interface SemgrepResult {
   check_id: string;
@@ -27,8 +29,20 @@ const binary = (): string => toolBinary('semgrep');
 
 const LEVELS: Record<string, Level> = { ERROR: 'error', WARNING: 'warning', INFO: 'note' };
 
+/** Semgrep never phones home: no metrics, no version check, no login token. */
+const semgrepEnv = (): NodeJS.ProcessEnv => ({
+  ...scrubbedEnv(),
+  SEMGREP_SEND_METRICS: 'off',
+  SEMGREP_ENABLE_VERSION_CHECK: '0',
+});
+
 const version = cachedVersion(() => {
-  const res = spawnSync(binary(), ['--version'], { encoding: 'utf8' });
+  const res = spawnSync(binary(), ['--version'], {
+    encoding: 'utf8',
+    timeout: PROBE_TIMEOUT_MS,
+    env: semgrepEnv(),
+    windowsHide: true,
+  });
   return !res.error && res.status === 0 ? (versionIn(res.stdout) ?? res.stdout.trim()) : undefined;
 }, binary);
 
@@ -44,12 +58,14 @@ async function run(ctx: RunContext, def: CheckDefinition, files: ChangedFile[]):
     );
   if (!ctx.config.semgrepConfig) throw new Error('config/semgrep is missing from the qa configuration');
   const rules = ctx.config.semgrepConfig;
-  return withCheckedFiles(ctx, 'semgrep', files, (_work, src) => {
-    const res = spawnSync(
+  return withCheckedFiles(ctx, 'semgrep', files, async (_work, src) => {
+    const timeoutMs = ctx.timeoutFor(def);
+    const res = await runProcess(
       binary(),
       ['scan', '--config', rules, '--json', '--metrics=off', '--disable-version-check', '--quiet', '.'],
-      { cwd: src, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env: { ...process.env, SEMGREP_SEND_METRICS: 'off' } },
+      { cwd: src, env: semgrepEnv(), timeoutMs },
     );
+    if (res.timedOut) throw new ToolTimeoutError('semgrep', timeoutMs);
     let out: SemgrepOutput | undefined;
     try {
       out = JSON.parse(res.stdout) as SemgrepOutput;
@@ -59,7 +75,7 @@ async function run(ctx: RunContext, def: CheckDefinition, files: ChangedFile[]):
     const fatal = out?.errors.filter((e) => e.level === 'error') ?? [];
     if (res.error || !out || res.status !== 0 || fatal.length > 0) {
       const detail = fatal.map((e) => e.long_msg ?? e.message ?? e.type).join('; ') || res.stderr || res.error?.message;
-      throw new Error(`semgrep failed (exit ${res.status}): ${(detail ?? '').trim().slice(0, 500)}`);
+      throw new Error(`semgrep failed (exit ${res.status}): ${redact((detail ?? '').trim()).slice(0, 500)}`);
     }
     return out.results.map((r) => {
       const ruleId = r.check_id.split('.').pop() as string;
@@ -77,4 +93,10 @@ async function run(ctx: RunContext, def: CheckDefinition, files: ChangedFile[]):
   });
 }
 
-export const semgrep: ToolAdapter = { name: 'semgrep', available: () => version() !== undefined, version, run };
+export const semgrep: ToolAdapter = {
+  name: 'semgrep',
+  available: () => version() !== undefined,
+  version,
+  rulesHash: (ctx) => hashFiles(ctx.config.semgrepConfig ? listRuleFiles(ctx.config.semgrepConfig) : []),
+  run,
+};
