@@ -27,7 +27,9 @@ export function findExemption(
   for (const ex of exemptions) {
     if (ex.check !== finding.checkId) continue;
     if (ex.repo !== '*' && ex.repo !== repo) continue;
-    if (!finding.path || !globMatcher([ex.path])(finding.path)) continue;
+    // A finding on the pull request as a whole (title, description, size) has
+    // no path; only an exemption whose path is "*" covers it.
+    if (finding.path ? !globMatcher([ex.path])(finding.path) : ex.path !== '*') continue;
     if (ex.expires >= asOf) return { active: ex };
     expired = ex;
   }

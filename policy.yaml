@@ -30,6 +30,60 @@ pr:
   diff_ignore: ['**/yarn.lock', '**/package-lock.json', '**/pnpm-lock.yaml', '**/*.snap']
   coverage_min_lines: 80
 
+  # The pull request's own title and description (pr.title, pr.ticket,
+  # pr.description; AIQC-86). Checked in the PR gate from GitHub's event, and by
+  # "qa prepr --pr-title ... --pr-body-file ..." before opening one.
+  title_pattern: '^[A-Z][A-Z0-9]+-\d+: \S'
+  title_example: '"<TICKET-123>: <short description>", e.g. "LCORE-212: Add idempotency key to refund endpoint"'
+  # Jira project keys a ticket reference may use. Empty: any key of the form
+  # ABC-123. Set them per repository under repos.<name>.ticket_projects.
+  ticket_projects: []
+  # Ticket links in a description must point here.
+  ticket_url: 'https://ledgerlink.atlassian.net/browse/'
+  # The sections templates/pull_request_template.md has; aliases accept the
+  # headings of the developer rules template (docs/RULES.md).
+  description_sections:
+    - name: Summary
+    - name: Ticket
+      aliases: ['Linked ticket']
+    - name: Changes
+    - name: Testing
+      aliases: ['How it was tested']
+    - name: Security Impact
+    - name: Checklist
+      aliases: ['Security checklist']
+      checklist: true
+  # Per repository: any of title_pattern, title_example, ticket_projects,
+  # ticket_url, description_sections. Changes need code-owner review.
+  #   repos:
+  #     link_core:
+  #       ticket_projects: [LCORE]
+  repos: {}
+
+# Time limits. A scanner that runs past its limit is stopped: locally the
+# check is deferred to CI with a notice; in CI it is an engine error (exit 2),
+# never a pass. Environment overrides: QA_TOOL_TIMEOUT_MS (every scanner),
+# QA_GIT_TIMEOUT_MS, QA_DOWNLOAD_TIMEOUT_MS.
+timeouts:
+  tool_ms: 300000 # one Gitleaks or Semgrep run
+  tools:
+    semgrep: 600000 # Semgrep starts a Python runtime and parses every file
+  git_ms: 120000
+  download_ms: 120000 # one attempt to download Gitleaks or upload a report
+  network_retries: 3 # retries for a download or upload that failed for a network reason
+
+# Checks of the same stage run in parallel (stages stay in order, P2), at most
+# this many at a time; QA_PARALLELISM overrides it. Locally, scanner results
+# are cached per file content in <qa home>/cache (QA_NO_CACHE=1 or --no-cache
+# turns it off); CI never uses the cache.
+performance:
+  parallelism: 4
+  cache: true
+
+# The oldest qa that understands this configuration. An older qa stops with
+# instructions instead of misreading it.
+min_engine_version: '0.2.3'
+
 # Exact versions every developer machine and CI run. The hooks themselves are
 # pinned by `rev` in each repository's .pre-commit-config.yaml; `qa doctor`
 # compares what is installed with these.
@@ -42,7 +96,22 @@ protected:
   # Agents must not edit these (AGENTS.md rule 3, C15-4). Humans may, with
   # code-owner review (R11-6).
   tags: [ci-config, signing]
-  globs: ['**/*.pem', '**/*.key', '**/*.p12', '**/*.pfx', '**/keys/**', '**/.env', '**/.env.*', '**/prod/**']
+  # The hook configuration and the dated baseline are protected too: changing
+  # them changes what the checks block, so it needs code-owner review.
+  globs:
+    [
+      '**/*.pem',
+      '**/*.key',
+      '**/*.p12',
+      '**/*.pfx',
+      '**/keys/**',
+      '**/.env',
+      '**/.env.*',
+      '**/prod/**',
+      '.pre-commit-config.yaml',
+      '.husky/**',
+      '.qa/baseline.sarif',
+    ]
 
 checks:
   secrets.gitleaks:
@@ -74,6 +143,14 @@ checks:
   pr.diff-size:
     mode: report
   tests.coverage:
+    mode: report
+  # Pull request title, ticket and description (AIQC-86): report first; the
+  # blocking date is agreed with LedgerLink.
+  pr.title:
+    mode: report
+  pr.ticket:
+    mode: report
+  pr.description:
     mode: report
   paths.protected:
     mode: report

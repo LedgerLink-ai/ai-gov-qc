@@ -1,0 +1,17 @@
+# Dependency updates for the engine and the workflows. Pull requests go to
+# dev (main accepts pull requests from dev only). Actions stay pinned by
+# commit SHA; Dependabot updates the SHA and the version comment.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

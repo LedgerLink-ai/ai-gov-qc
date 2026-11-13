@@ -34,7 +34,7 @@ The Gitleaks rules added to the defaults are in `config/gitleaks.toml`, generate
 - `solana-keypair-array`
 - `bip39-mnemonic`, built from the BIP39 English wordlist, which is checked against its published SHA-256
 
-Local hooks can be bypassed with `git commit --no-verify`. That is accepted: the pull request runs every check again, where it cannot be skipped. (The prepare-commit-msg hook still runs with `--no-verify`, so messages are still pre-filled.)
+Local hooks can be bypassed with `git commit --no-verify`, and a developer controls their own machine, so the hooks are fast feedback, not the control. The control is the pull request gate: `.github/workflows/qa-pr.yml` runs every qa check again on GitHub's runners with the configuration released with qa, and rulesets make it a required check that only organisation administrators can bypass ([ENFORCEMENT.md](ENFORCEMENT.md), which lists every limitation of local hooks). (The prepare-commit-msg hook still runs with `--no-verify`, so messages are still pre-filled.)
 
 ### Commit messages
 
@@ -61,7 +61,7 @@ One effect of pre-filling: in the editor, saving without typing no longer aborts
 
 ## 1. Once per machine
 
-Everything comes from one package, `@ledgerlink/qa` (`ledgerlink-qa-<version>.tgz`). It works the same on Windows, macOS and Linux. Requirements: Node 20 or later, git, and Python 3.9 to 3.14.
+Everything comes from one package, `@ledgerlink/qa` (`ledgerlink-qa-<version>.tgz`). It works the same on Windows, macOS and Linux. Requirements: Node 20 or later, git, and Python 3.11 to 3.14.
 
 ```bash
 npm install -g <full path to ledgerlink-qa-0.2.1.tgz, its URL, or @ledgerlink/qa@0.2.1>
@@ -73,17 +73,22 @@ git config --global ledgerlink.assistedBy "<tool>, <model>, <version>"   # or "n
 - **`qa setup`** installs the external tools at the versions pinned under `tools:` in `policy.yaml`, into `~/.ledgerlink-qa` (`QA_HOME` or `--home` to change it):
   - **pre-commit and Semgrep:** pip, into a private Python environment, so the machine's own Python is left alone.
   - **Gitleaks:** the release archive for this OS and CPU, checked against the official SHA-256 list stored in `config/gitleaks_8.30.1_checksums.txt` before it is unpacked. With no access to GitHub, download the archive another way and run `qa setup --gitleaks-archive <file>`, or use a mirror with `--download-base <url>`.
-  - **The git template:** sets `init.templateDir`, so every clone from then on has the pre-commit, prepare-commit-msg and pre-push hooks connected. A template that pre-commit made earlier with an older hook list is updated; any other `init.templateDir` is left alone.
+  - **The hooks for every repository:** writes one small script per git hook into `~/.ledgerlink-qa/hooks` and sets git's global `core.hooksPath` to it. Every clone on the machine, made before or after, then runs the pre-commit, prepare-commit-msg and pre-push hooks, and nothing is copied into any repository.
+    - In an opted-in LedgerLink-ai repository, the hooks run the checks from the repository's `.pre-commit-config.yaml` if it has one, else from the default configuration that ships with qa. Everywhere else they do nothing.
+    - Each repository's own `.git/hooks` (Git LFS, an earlier `pre-commit install`) still runs.
+    - A `core.hooksPath` that is not qa's is left alone, and setup says so.
+    - `qa setup --uninstall` removes the hooks. `qa setup --no-global-hooks` sets up the older git template (`init.templateDir`, new clones only) instead.
 - **Add `~/.ledgerlink-qa/bin` to PATH.** `qa setup` prints the command for your OS. Git's own hooks work without it, but husky and your shell need it to find `pre-commit`.
 - **Check:** `qa doctor` in any repository ends with `result: READY`.
 
 Semgrep is optional locally: without it the pre-push hook prints `sast.semgrep … runs in CI`. Gitleaks is needed for the secret scan; without it the scan is skipped locally with the same notice.
 
-After setup, for existing clones:
+After setup:
 
-- **A clone that already exists:** run `git init` inside it once to pick up the template, or `pre-commit install`.
-- **A repository without `.pre-commit-config.yaml`:** the hooks print "config file not found. Skipping" and change nothing.
-- **husky repositories:** husky owns the hooks there and calls pre-commit itself.
+- **Existing clones:** nothing to do; they are connected.
+- **A repository without `.pre-commit-config.yaml`:** the default configuration runs.
+- **husky repositories:** husky sets `core.hooksPath` in the repository, which overrides the global one, so husky's hooks run and must call qa (`qa hook pre-commit`, or pre-commit itself; see below).
+- **Repositories outside LedgerLink-ai, or not on the allowlist:** only their own hooks run.
 
 **Nothing is installed per repository.** The hooks call the one `qa` installed on the machine, so ten repositories share it. Each repository pins the version it needs: its hooks run `qa --require 0.2.0 …`, and an incompatible `qa` stops with the install command instead of checking. Compatible means the same major version (the same minor below 1.0) and not older.
 
@@ -91,8 +96,8 @@ On this machine (3 Nov 2026) the tools were installed earlier by hand, with pip 
 
 ## 2. Once per repository
 
-1. Copy `templates/pre-commit-config.yaml` (also in the installed package, under `templates/`) to the repository root as `.pre-commit-config.yaml`. Change the script names in `args` and `entry` to the repository's own, delete what does not apply, and commit it once.
-2. Only if the git template is not set up: run `pre-commit install` in each clone.
+1. Nothing to copy. Only to change what runs in this repository: copy `templates/pre-commit-config.yaml` (also in the installed package, under `templates/`) to the repository root as `.pre-commit-config.yaml`, change the script names in `args` and `entry` to the repository's own, delete what does not apply, and commit it. That copy then replaces the default.
+2. Only with `qa setup --no-global-hooks` and no git template: run `pre-commit install` in each clone.
 3. Run `qa doctor` in the repository. It checks the tool versions against `policy.yaml`, the installed `qa` against the repository's `--require` version, the config file and the three hooks, and ends with `result: READY` or `result: NOT READY`.
 
 **Before the package is installed on a machine**, the repository's hooks fail with "qa: command not found". Install it, or skip the hooks once with `--no-verify`.

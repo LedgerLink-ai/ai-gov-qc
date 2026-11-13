@@ -14,6 +14,8 @@
     "requires": { "type": "array", "items": { "type": "string" } },
     "pending": { "type": "string", "description": "Reason the fixture cannot pass yet; it is reported, not run" },
     "commit_message": { "type": "string" },
+    "pr_title": { "type": "string", "description": "Pull request title, for the pr-text checks" },
+    "pr_body": { "type": "string", "description": "Pull request description, for the pr-text checks" },
     "baseline_from_self": { "type": "boolean" },
     "values": {
       "type": "object",

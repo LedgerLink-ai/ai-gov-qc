@@ -9,5 +9,10 @@
 #   approved_by: name
 #   reason: why the finding is accepted for now
 #   expires: 2026-12-31
+#
+# A finding on a pull request as a whole has no path: pr.title, pr.ticket,
+# pr.description, pr.diff-size and the other pull request checks. Exempt one
+# for a repository with path: '*' (it then applies to every pull request in
+# that repository until it expires).
 version: 1
 exemptions: []

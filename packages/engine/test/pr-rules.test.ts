@@ -31,7 +31,8 @@ describe('pull request checks (stage 3)', () => {
 
   it('are skipped outside a pre-PR run', async () => {
     const result = await run(options({ 'a.ts': 'x\n' }, { stages: [3] }));
-    const runs = result.checkRuns.filter((r) => r.checkId.startsWith('pr.'));
+    const runs = result.checkRuns.filter((r) => ['pr.branch-name', 'pr.commits', 'pr.diff-size'].includes(r.checkId));
+    expect(runs).toHaveLength(3);
     expect(runs.every((r) => r.status === 'skipped' && /qa prepr/.test(r.reason ?? ''))).toBe(true);
   });
 

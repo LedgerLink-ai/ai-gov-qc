@@ -1,0 +1,29 @@
+# The pull request gate for a LedgerLink-ai repository. Copy this file to
+# .github/workflows/qa.yml in each opted-in repository (one listed, enabled,
+# in registry/repositories.yaml), then make "qa / pull request checks" a
+# required status check in the branch ruleset (docs/ENFORCEMENT.md).
+#
+# Not needed where the organisation ruleset already requires
+# LedgerLink-ai/ai-gov-qc/.github/workflows/qa-pr.yml for the repository.
+#
+# The called workflow installs the pinned qa release (checksum and provenance
+# verified), runs every qa check on the pull request with the configuration
+# released with qa, and fails the check on any blocking finding or on any
+# check that cannot run. To roll back qa, set qa-version to an earlier release.
+name: qa
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  qa:
+    # Pin to the commit of the qa release (git rev-list -n 1 v<version>), not a branch.
+    uses: LedgerLink-ai/ai-gov-qc/.github/workflows/qa-pr.yml@v0.2.3
+    with:
+      qa-version: '0.2.3'
+    secrets: inherit

@@ -8,7 +8,7 @@ import { schemaValidator } from './config';
 import { today } from './policy';
 import { run } from './runner';
 import { directorySource, listFiles } from './sources';
-import type { Actor, Config } from './types';
+import type { Actor, Config, PrText } from './types';
 
 // Conformance (Technical Design 10.5): planted defects run through every entry
 // point and must produce the expected findings, identically on each path.
@@ -22,6 +22,8 @@ export interface Fixture {
   requires?: string[];
   pending?: string;
   commit_message?: string;
+  pr_title?: string;
+  pr_body?: string;
   baseline_from_self?: boolean;
   values?: Record<string, string[] | { codepoint: string }>;
   exact?: boolean;
@@ -99,6 +101,11 @@ function excludedChecks(config: Config): string[] {
 
 /** Kept beside the fixture tree, never inside it, so it is not a changed file. */
 const commitMessageFile = (root: string): string => `${root}.COMMIT_EDITMSG`;
+const prBodyFile = (root: string): string => `${root}.PR_BODY.md`;
+
+/** The fixture's pull request title and description, when it has either. */
+const fixturePrText = (f: Fixture): PrText | undefined =>
+  f.pr_title === undefined && f.pr_body === undefined ? undefined : { title: f.pr_title ?? '', body: f.pr_body ?? '' };
 
 const key = (o: Observed): string => `${o.check}|${o.path ?? ''}|${o.level}|${o.blocking}|${o.fingerprint}`;
 
@@ -119,6 +126,7 @@ async function runApi(
     changedFiles: listFiles(root).map((path) => ({ path, status: 'A' as const })),
     source: directorySource(root),
     commitMessage: fixture.commit_message,
+    prText: fixturePrText(fixture),
     baseline,
     exclude: excludedChecks(config),
   });
@@ -133,6 +141,16 @@ async function runApi(
     errors: result.engineErrors,
   };
 }
+
+/**
+ * Fixtures are loose folders in the temp directory, not allowlisted
+ * repositories. The execution gate honours this only for such a folder
+ * (outside any git work tree), never for a real repository.
+ */
+const CONFORMANCE_ENV: NodeJS.ProcessEnv = { ...process.env, QA_CONFORMANCE: '1' };
+// A fixture's pull request text comes from the fixture only, never from the
+// GitHub event of the run that executes the fixtures.
+for (const k of ['GITHUB_EVENT_PATH', 'QA_PR_TITLE', 'QA_PR_BODY_FILE']) delete CONFORMANCE_ENV[k];
 
 function runCli(
   cliPath: string,
@@ -163,12 +181,21 @@ function runCli(
     writeFileSync(msgFile, fixture.commit_message);
     extra.push('--commit-msg-file', msgFile);
   }
+  const prText = fixturePrText(fixture);
+  if (prText) {
+    writeFileSync(prBodyFile(root), prText.body);
+    extra.push('--pr-title', prText.title, '--pr-body-file', prBodyFile(root));
+  }
   if (fixture.baseline_from_self) {
-    const b = spawnSync(process.execPath, [cliPath, 'baseline', ...common, ...extra], { encoding: 'utf8' });
+    const b = spawnSync(process.execPath, [cliPath, 'baseline', ...common, ...extra], {
+      encoding: 'utf8',
+      env: CONFORMANCE_ENV,
+    });
     if (b.status !== 0) return { observed: [], errors: [`qa baseline exited ${b.status}: ${b.stderr.trim()}`] };
   }
   const res = spawnSync(process.execPath, [cliPath, 'check', ...common, ...extra, '--format', 'json'], {
     encoding: 'utf8',
+    env: CONFORMANCE_ENV,
   });
   if (res.status === null || res.status > 2 || !res.stdout) {
     return { observed: [], errors: [`qa check exited ${res.status}: ${res.stderr.trim()}`] };
@@ -242,6 +269,7 @@ export async function runFixture(config: Config, fixtureDir: string, cliPath?: s
   } finally {
     rmSync(root, { recursive: true, force: true });
     rmSync(commitMessageFile(root), { force: true });
+    rmSync(prBodyFile(root), { force: true });
   }
 }
 

@@ -5,6 +5,7 @@ import Ajv, { type ValidateFunction } from 'ajv';
 import { parse as parseYaml } from 'yaml';
 import { NATIVE_CHECKS } from './checks';
 import { TOOL_ADAPTERS } from './adapters/tools';
+import { ENGINE_VERSION } from './version';
 import {
   ConfigError,
   type AiRegistry,
@@ -12,11 +13,13 @@ import {
   type Config,
   type Exemption,
   type PathTags,
+  type RepositoryAllowlist,
   type Policy,
 } from './types';
 
 const FILES = {
   registry: 'registry/ai-registry.yaml',
+  repositories: 'registry/repositories.yaml',
   pathTags: 'path-tags.yaml',
   checks: 'checks.yaml',
   policy: 'policy.yaml',
@@ -25,31 +28,60 @@ const FILES = {
 
 const SCHEMAS: Record<keyof typeof FILES, string> = {
   registry: 'ai-registry.schema.json',
+  repositories: 'repositories.schema.json',
   pathTags: 'path-tags.schema.json',
   checks: 'checks.schema.json',
   policy: 'policy.schema.json',
   exemptions: 'exemptions.schema.json',
 };
 
+export type ConfigOrigin = 'flag' | 'env' | 'bundled' | 'checkout';
+
 /**
  * Where the registries live, in order: --config, QA_CONFIG_DIR, the snapshot
  * bundled in the published package, then the qc-workflows checkout this
- * package sits in.
+ * package sits in. `origin` says which one was used, for the execution gate:
+ * configuration named by a flag or the environment is refused when it sits
+ * inside the repository being checked (gate.ts, configSourceProblem).
  */
-export function resolveConfigDir(explicit?: string): string {
-  const candidates = [
-    explicit,
-    process.env.QA_CONFIG_DIR,
-    resolve(__dirname, '..', 'config'),
-    resolve(__dirname, '..', '..', '..'),
-  ].filter((c): c is string => Boolean(c));
-  for (const dir of candidates) {
-    if (existsSync(join(dir, FILES.policy)) && existsSync(join(dir, FILES.checks))) return resolve(dir);
+export function locateConfig(explicit?: string): { dir: string; origin: ConfigOrigin } {
+  const candidates: Array<[string | undefined, ConfigOrigin]> = [
+    [explicit, 'flag'],
+    [process.env.QA_CONFIG_DIR, 'env'],
+    [resolve(__dirname, '..', 'config'), 'bundled'],
+    [resolve(__dirname, '..', '..', '..'), 'checkout'],
+  ];
+  const tried: string[] = [];
+  for (const [dir, origin] of candidates) {
+    if (!dir) continue;
+    tried.push(dir);
+    if (existsSync(join(dir, FILES.policy)) && existsSync(join(dir, FILES.checks)))
+      return { dir: resolve(dir), origin };
+    // A directory the caller named that has no configuration is an error, not a reason to fall back.
+    if (origin === 'flag' || origin === 'env')
+      throw new ConfigError(
+        `${dir} (from ${origin === 'flag' ? '--config' : 'QA_CONFIG_DIR'}) has no policy.yaml and checks.yaml`,
+      );
   }
-  throw new ConfigError(`No qa configuration found. Looked in: ${candidates.join(', ')}`);
+  throw new ConfigError(`No qa configuration found. Looked in: ${tried.join(', ')}`);
 }
 
-let ajv: Ajv | undefined;
+export function resolveConfigDir(explicit?: string): string {
+  return locateConfig(explicit).dir;
+}
+
+/** -1, 0 or 1 as version a is older than, equal to or newer than b (MAJOR.MINOR.PATCH). */
+export function compareVersions(a: string, b: string): number {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pa[i] < pb[i] ? -1 : 1;
+  return 0;
+}
+
+// One schema compiler per configuration directory: schemas carry a fixed $id,
+// so two directories (the bundled configuration and a --config one, or two
+// versions in one process) must not share a compiler.
+const compilers = new Map<string, Ajv>();
 const validators = new Map<string, ValidateFunction>();
 
 export function schemaValidator(configDir: string, schemaFile: string): ValidateFunction {
@@ -57,7 +89,12 @@ export function schemaValidator(configDir: string, schemaFile: string): Validate
   const cached = validators.get(schemaPath);
   if (cached) return cached;
   if (!existsSync(schemaPath)) throw new ConfigError(`Schema not found: ${schemaPath}`);
-  ajv ??= new Ajv({ allErrors: true, strict: true, allowUnionTypes: true });
+  const key = resolve(configDir);
+  let ajv = compilers.get(key);
+  if (!ajv) {
+    ajv = new Ajv({ allErrors: true, strict: true, allowUnionTypes: true });
+    compilers.set(key, ajv);
+  }
   let validate: ValidateFunction;
   try {
     validate = ajv.compile(JSON.parse(readFileSync(schemaPath, 'utf8')));
@@ -122,7 +159,39 @@ export function crossValidate(config: Omit<Config, 'hashes' | 'dir'>): string[] 
     if (!toolIds.has(agent.tool))
       problems.push(`ai-registry.yaml: agent ${agent.login} names unknown tool ${agent.tool}`);
   }
+  const repoNames = new Set<string>();
+  for (const r of config.repositories.repositories) {
+    const key = r.name.toLowerCase();
+    if (repoNames.has(key)) problems.push(`repositories.yaml: duplicate repository ${r.name}`);
+    repoNames.add(key);
+  }
+  // Pull request conventions: every pattern compiles, and per-repository
+  // overrides name repositories in the allowlist.
+  const pr = config.policy.pr;
+  const patterns: Array<[string, string | undefined]> = [
+    ['pr.branch_pattern', pr?.branch_pattern],
+    ['pr.title_pattern', pr?.title_pattern],
+    ...Object.entries(pr?.repos ?? {}).map(([name, o]): [string, string | undefined] => [
+      `pr.repos.${name}.title_pattern`,
+      o.title_pattern,
+    ]),
+  ];
+  for (const [where, pattern] of patterns) {
+    if (pattern === undefined) continue;
+    try {
+      new RegExp(pattern);
+    } catch (err) {
+      problems.push(`policy.yaml: ${where} is not a valid regular expression (${(err as Error).message})`);
+    }
+  }
+  for (const name of Object.keys(pr?.repos ?? {})) {
+    if (!repoNames.has(name.toLowerCase()))
+      problems.push(`policy.yaml: pr.repos.${name} is not a repository in repositories.yaml`);
+  }
   const exemptionIds = new Set<string>();
+  for (const [tool, pin] of Object.entries(config.policy.tools ?? {})) {
+    if (!/^\d+\.\d+\.\d+$/.test(pin)) problems.push(`policy.yaml: tools.${tool} is not an exact version`);
+  }
   for (const ex of config.exemptions) {
     if (exemptionIds.has(ex.id)) problems.push(`exemptions.yaml: duplicate id ${ex.id}`);
     exemptionIds.add(ex.id);
@@ -131,16 +200,27 @@ export function crossValidate(config: Omit<Config, 'hashes' | 'dir'>): string[] 
   return problems;
 }
 
+/** Only the repository allowlist, for the execution gate that runs before anything else loads. */
+export function loadAllowlist(explicitDir?: string): RepositoryAllowlist {
+  return loadYaml<RepositoryAllowlist>(resolveConfigDir(explicitDir), 'repositories', {});
+}
+
 export function loadConfig(explicitDir?: string): Config {
   const dir = resolveConfigDir(explicitDir);
   const hashes: Record<string, string> = {};
   const registry = loadYaml<AiRegistry>(dir, 'registry', hashes);
+  const repositories = loadYaml<RepositoryAllowlist>(dir, 'repositories', hashes);
   const pathTags = loadYaml<PathTags>(dir, 'pathTags', hashes);
   const checks = loadYaml<{ checks: CheckDefinition[] }>(dir, 'checks', hashes).checks;
   const policy = loadYaml<Policy>(dir, 'policy', hashes);
   const exemptions = loadYaml<{ exemptions: Exemption[] }>(dir, 'exemptions', hashes).exemptions;
 
-  const problems = crossValidate({ registry, pathTags, checks, policy, exemptions });
+  if (policy.min_engine_version && compareVersions(ENGINE_VERSION, policy.min_engine_version) < 0)
+    throw new ConfigError(
+      `this configuration (${dir}) needs qa ${policy.min_engine_version} or later; qa ${ENGINE_VERSION} is installed. ` +
+        `Install a newer qa, or use the configuration bundled with this one (omit --config and QA_CONFIG_DIR).`,
+    );
+  const problems = crossValidate({ registry, repositories, pathTags, checks, policy, exemptions });
   if (problems.length > 0) throw new ConfigError(`Configuration is inconsistent:\n  - ${problems.join('\n  - ')}`);
 
   const gitleaksConfig = join(dir, 'config', 'gitleaks.toml');
@@ -148,6 +228,7 @@ export function loadConfig(explicitDir?: string): Config {
   return {
     dir,
     registry,
+    repositories,
     pathTags,
     checks,
     policy,

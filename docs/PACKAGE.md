@@ -21,7 +21,7 @@ The tools that are not npm packages are installed by `qa setup` on each machine,
 | Semgrep    | 1.183.0 | same                                                                                        |
 | Gitleaks   | 8.30.1  | the GitHub release archive for the OS and CPU, SHA-256 checked, into `~/.ledgerlink-qa/bin` |
 
-Gitleaks builds exist for Windows (x64, arm64), macOS (x64, arm64) and Linux (x64, arm64 and others). Python 3.9 to 3.14 must already be on the machine; `qa setup` says so if it is missing.
+Gitleaks builds exist for Windows (x64, arm64), macOS (x64, arm64) and Linux (x64, arm64 and others). Python 3.11 to 3.14 must already be on the machine; `qa setup` says so if it is missing.
 
 ## Where to host it
 
@@ -64,7 +64,7 @@ npm install -g --prefix <empty folder> ./out/ledgerlink-qa-0.2.1.tgz --offline
 
 `--prefix` and `--home` keep the test away from the machine's own setup. The sandbox in [PRECOMMIT.md](PRECOMMIT.md) uses the package the same way: `npm run sandbox -- refresh` rebuilds it, unpacks it into `../sandbox/qa-package`, and points the clone's hooks at it.
 
-To remove an installation: `npm uninstall -g @ledgerlink/qa`, delete `~/.ledgerlink-qa`, and unset `init.templateDir` if `qa setup` set it (`git config --global --unset init.templateDir`).
+To remove an installation: `qa setup --uninstall` (removes the hooks for every repository and unsets git's global `core.hooksPath`), then `npm uninstall -g @ledgerlink/qa` and delete `~/.ledgerlink-qa`. With `--no-global-hooks`, unset `init.templateDir` instead if `qa setup` set it (`git config --global --unset init.templateDir`).
 
 ## Checked on 3 Nov 2026 (Windows 11 only)
 
