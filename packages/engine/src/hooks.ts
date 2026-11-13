@@ -91,6 +91,31 @@ export function defaultHookConfig(): string {
   return found;
 }
 
+/**
+ * The default configuration, copied into the repository's git directory
+ * (<git dir>/ledgerlink-qa/pre-commit-config.yaml) and rewritten only when the
+ * installed qa ships a different one. pre-commit works out the configuration's
+ * path relative to the repository, which fails on Windows when the two are on
+ * different drives (qa installed on C:, the repository on D:). The git
+ * directory is git's own metadata: nothing appears in the working tree, and
+ * git never commits it.
+ */
+export function stageDefaultConfig(gitDir: string): string {
+  const text = readFileSync(defaultHookConfig());
+  const dest = join(gitDir, 'ledgerlink-qa', 'pre-commit-config.yaml');
+  let current: Buffer | undefined;
+  try {
+    current = readFileSync(dest);
+  } catch {
+    current = undefined;
+  }
+  if (!current?.equals(text)) {
+    mkdirSync(dirname(dest), { recursive: true });
+    writeFileSync(dest, text);
+  }
+  return dest;
+}
+
 /** The POSIX shell script for one hook. Git runs hooks with sh on every OS, Git for Windows included. */
 export function hookScript(hook: string, qa: QaCommand): string {
   const passThrough = [
@@ -243,7 +268,7 @@ export function runHook(hook: string, args: string[], deps: HookDeps): number {
   let config: string;
   try {
     const repoConfig = join(top, '.pre-commit-config.yaml');
-    config = existsSync(repoConfig) ? repoConfig : defaultHookConfig();
+    config = existsSync(repoConfig) ? repoConfig : stageDefaultConfig(resolve(cwd, common as string));
   } catch (err) {
     deps.warn(`${(err as Error).message}; the checks were skipped. Reinstall qa.`);
     return 0;

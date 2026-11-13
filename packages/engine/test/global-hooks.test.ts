@@ -11,6 +11,7 @@ import {
   QA_HOOKS,
   removeHookScripts,
   sameDir,
+  stageDefaultConfig,
   writeHookScripts,
 } from '../src/hooks';
 import { toolBinary } from '../src/tools-home';
@@ -63,6 +64,17 @@ describe('hook scripts', () => {
     expect(sameDir('/home/dev/.ledgerlink-qa/hooks/', '/home/dev/.ledgerlink-qa/hooks')).toBe(true);
     expect(sameDir('~/.ledgerlink-qa/hooks', '/home/dev/.ledgerlink-qa/hooks', '/home/dev')).toBe(true);
     expect(sameDir('/home/dev/.husky/_', '/home/dev/.ledgerlink-qa/hooks')).toBe(false);
+  });
+
+  it('copies the default configuration into the git directory, so pre-commit finds it on the same drive', () => {
+    const gitDir = join(dir, '.git');
+    const staged = stageDefaultConfig(gitDir);
+    expect(posix(staged)).toBe(posix(join(gitDir, 'ledgerlink-qa', 'pre-commit-config.yaml')));
+    expect(readFileSync(staged, 'utf8')).toBe(readFileSync(defaultHookConfig(), 'utf8'));
+    // A stale copy from an older qa is replaced.
+    writeFileSync(staged, 'repos: []\n');
+    stageDefaultConfig(gitDir);
+    expect(readFileSync(staged, 'utf8')).toBe(readFileSync(defaultHookConfig(), 'utf8'));
   });
 
   it('ships the default configuration with the package', () => {
