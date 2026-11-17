@@ -663,7 +663,10 @@ function prepareCommitMsg(positionals: string[], flags: Flags): number {
     const result = prepareMessage({
       message,
       source: sourceArg ?? process.env.PRE_COMMIT_COMMIT_MSG_SOURCE ?? '',
-      branch: branchOf(flags, root),
+      // Not the branch being rebased: a rebase replays every commit through this
+      // hook, and its subjects (a teammate's too) must not be rewritten on the way.
+      // HEAD is detached then, which leaves the message as it is.
+      branch: str(flags, 'branch') ?? gitBranch(root),
       assistedBy: assistedByDefault(root),
       registry,
       conventions,

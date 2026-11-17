@@ -210,8 +210,10 @@ export function crossValidate(config: Omit<Config, 'hashes' | 'dir'>): string[] 
       problems.push(`policy.yaml: ${where}.ticket_pattern must not contain capturing groups; use (?:...)`);
     if (c.commit_template !== undefined)
       for (const p of templateProblems(c.commit_template)) problems.push(`policy.yaml: ${where}.commit_template ${p}`);
+    // What applies to the section: its own lists, else the global ones, else the defaults.
     const commitTypes = c.commit_types ?? conv?.commit_types ?? DEFAULT_CONVENTIONS.commitTypes;
-    for (const [branchType, commitType] of Object.entries(c.branch_types ?? {}))
+    const branchTypes = c.branch_types ?? conv?.branch_types ?? DEFAULT_CONVENTIONS.branchTypes;
+    for (const [branchType, commitType] of Object.entries(branchTypes))
       if (!commitTypes.includes(commitType))
         problems.push(
           `policy.yaml: ${where}.branch_types.${branchType} is "${commitType}", which is not one of the commit_types`,

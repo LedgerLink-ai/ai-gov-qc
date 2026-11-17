@@ -174,6 +174,8 @@ function addTrailer(lines: string[], trailer: string): void {
  */
 function subjectFor(subject: string, conv: Conventions, type: string, ticket: string): string | undefined {
   if (parseSubject(subject, conv)) return undefined;
+  // Only a prefix, with no description yet ("feat(LCORE-210):"): adding another would double it.
+  if (parseSubject(`${subject.trimEnd()} x`, conv)?.description === 'x') return undefined;
   const conventional = templateHasType(conv) ? CONVENTIONAL.exec(subject)?.groups : undefined;
   if (conventional && conv.commitTypes.includes(conventional.type)) {
     if (conventional.scope !== undefined || conventional.bang) return undefined;
