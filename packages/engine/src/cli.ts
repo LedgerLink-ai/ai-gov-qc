@@ -1179,7 +1179,11 @@ function configureLogging(argv: string[]): void {
 
 export async function main(argv: string[]): Promise<number> {
   try {
-    configureLogging(['repo-tool', 'repo-script', 'hook'].includes(argv[0] ?? '') ? [] : argv);
+    // After "repo-tool", "repo-script" and "hook" every argument belongs to the
+    // tool or to git, also when the hooks put "--require <version>" first.
+    const lead = /^--require=/.test(argv[0] ?? '') ? 1 : argv[0] === '--require' ? 2 : 0;
+    const passThrough = ['repo-tool', 'repo-script', 'hook'].includes(argv[lead] ?? '');
+    configureLogging(passThrough ? argv.slice(0, lead) : argv);
   } catch (err) {
     process.stderr.write(`qa: ${(err as Error).message}\n`);
     return 2;

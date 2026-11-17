@@ -98,7 +98,13 @@ Where Option A is not available:
    ```
 
 3. Keep `.github/` owned by DevOps in CODEOWNERS (it is a protected path), so
-   the stub cannot be removed without their review.
+   the stub cannot be removed without their review. This review is what holds
+   Option B: GitHub runs the stub from the pull request's own commit, so a
+   pull request that edits `.github/workflows/qa.yml` (to skip the checks, or
+   to call another `qa-repository`) gets a green check from its own version.
+   The ruleset's code-owner review and last-push approval stop it from
+   merging; Option A has no such gap, because the workflow comes from this
+   repository.
 
 ### Rolling out a new qa release
 
