@@ -1,3 +1,4 @@
+import { DEFAULT_CONVENTIONS } from '../src/conventions';
 import { prepareMessage, ticketFromBranch, type PrepareInput } from '../src/prepare-message';
 import type { AiRegistry } from '../src/types';
 
@@ -25,56 +26,110 @@ const registry: AiRegistry = {
 
 const DEFAULT = 'Cursor, gpt-5, 1.7.0';
 const prep = (message: string, over: Partial<PrepareInput> = {}) =>
-  prepareMessage({ message, source: 'message', branch: 'LCORE-210-limit-invariants', registry, ...over });
+  prepareMessage({ message, source: 'message', branch: 'feature/LCORE-210-limit-invariants', registry, ...over });
 
 describe('ticket key from the branch name', () => {
-  it('reads an upper-case key at the start of the branch or of a path segment', () => {
-    expect(ticketFromBranch('LCORE-210-limit-invariants')).toBe('LCORE-210');
-    expect(ticketFromBranch('feature/LWMNG-141-stop-logging')).toBe('LWMNG-141');
-    expect(ticketFromBranch('LD-480')).toBe('LD-480');
+  it('reads the key from a <type>/<TICKET-123>-<description> branch', () => {
+    expect(ticketFromBranch('feature/LCORE-210-limit-invariants')).toBe('LCORE-210');
+    expect(ticketFromBranch('bugfix/LWMNG-141-stop-logging')).toBe('LWMNG-141');
+    expect(ticketFromBranch('hotfix/LD-480')).toBe('LD-480');
   });
 
-  it('finds none in branches without one', () => {
-    for (const b of ['main', 'develop', 'chore/precommit-local-checks', 'lcore-210-x', 'release-2-0', 'HEAD'])
+  it('finds none in branches off the convention', () => {
+    for (const b of [
+      'main',
+      'develop',
+      'chore/precommit-local-checks',
+      'feature/lcore-210-x',
+      'LCORE-210-limit-invariants',
+      'release-2-0',
+      'HEAD',
+    ])
       expect(ticketFromBranch(b)).toBeUndefined();
   });
 });
 
 describe('prepare-commit-msg', () => {
-  it('prefixes the subject with the ticket key from the branch', () => {
+  it('prefixes the subject with the type and ticket key from the branch', () => {
     const r = prep('Add idempotency key to refund endpoint\n', { assistedBy: 'none' });
-    expect(r.message).toBe('LCORE-210: Add idempotency key to refund endpoint\n');
-    expect(r.notes).toEqual(['added "LCORE-210: " from branch LCORE-210-limit-invariants']);
-  });
-
-  it('leaves a subject that already starts with a ticket key, any project', () => {
-    expect(prep('LWMNG-141: Stop logging the API key\n').message).toBe('LWMNG-141: Stop logging the API key\n');
-    expect(prep('LCORE-210 tidy\n', { branch: 'qa/quality-gates', assistedBy: 'none' }).notes).toEqual([]);
-  });
-
-  it('says why when it adds nothing: no key in the branch, no default set', () => {
-    const r = prep('add precommit-config\n', { branch: 'qa/quality-gates' });
-    expect(r.message).toBe('add precommit-config\n');
+    expect(r.message).toBe('feat(LCORE-210): Add idempotency key to refund endpoint\n');
     expect(r.notes).toEqual([
-      'no ticket key added: branch qa/quality-gates has none (recommended: <TICKET-123>-<description>, e.g. LCORE-210-limit-invariants)',
-      'no Assisted-by added: no default set. Set it once: git config --global ledgerlink.assistedBy "<tool>, <model>, <version>" (or "none" if you do not use AI tools)',
+      'added ticket LCORE-210 from branch feature/LCORE-210-limit-invariants: "feat(LCORE-210): Add idempotency key to refund endpoint"',
     ]);
   });
 
-  it('stays quiet about the default for developers who set "none", and on a detached HEAD about the key', () => {
-    expect(prep('Fix\n', { branch: 'HEAD', assistedBy: 'none' }).notes).toEqual([]);
-    expect(prep('Fix\n', { branch: 'HEAD', assistedBy: 'None' }).message).toBe('Fix\n');
+  it('takes the commit type from the branch type', () => {
+    const msg = (branch: string): string => prep('patch it\n', { branch, assistedBy: 'none' }).message;
+    expect(msg('bugfix/LCORE-1-x')).toBe('fix(LCORE-1): patch it\n');
+    expect(msg('hotfix/LCORE-1-x')).toBe('hotfix(LCORE-1): patch it\n');
+    expect(msg('docs/LCORE-1-x')).toBe('docs(LCORE-1): patch it\n');
   });
 
-  it('enforces no subject format: a Conventional Commits subject only gains the key', () => {
-    expect(prep('feat(payments): add key\n').message).toBe('LCORE-210: feat(payments): add key\n');
+  it('leaves a subject that already follows the convention, even with another key (commit-msg reports that)', () => {
+    expect(prep('fix(LCORE-210): stop logging\n').message).toBe('fix(LCORE-210): stop logging\n');
+    expect(prep('feat(LWMNG-141): stop logging\n', { assistedBy: 'none' }).notes).toEqual([]);
+  });
+
+  it('adds the key to a Conventional Commits subject without a scope, keeping its type', () => {
+    expect(prep('fix: off-by-one in the poller\n', { assistedBy: 'none' }).message).toBe(
+      'fix(LCORE-210): off-by-one in the poller\n',
+    );
+  });
+
+  it('leaves a subject with a scope of its own for the developer to resolve', () => {
+    expect(prep('feat(payments): add key\n', { assistedBy: 'none' }).message).toBe('feat(payments): add key\n');
+    expect(prep('feat(payments)!: add key\n', { assistedBy: 'none' }).message).toBe('feat(payments)!: add key\n');
+  });
+
+  it('adds the type to the older "<TICKET-123>: " form when the key is the branch\'s', () => {
+    expect(prep('LCORE-210: Add retry\n', { assistedBy: 'none' }).message).toBe('feat(LCORE-210): Add retry\n');
+    expect(prep('LCORE-999: Add retry\n', { assistedBy: 'none' }).message).toBe('LCORE-999: Add retry\n');
+  });
+
+  it('follows a repository template, e.g. "{ticket}: "', () => {
+    const conventions = { ...DEFAULT_CONVENTIONS, commitTemplate: '{ticket}: ' };
+    expect(prep('Add retry\n', { assistedBy: 'none', conventions }).message).toBe('LCORE-210: Add retry\n');
+    expect(prep('LCORE-210: Add retry\n', { assistedBy: 'none', conventions }).notes).toEqual([]);
+  });
+
+  it('says why when it adds nothing: no valid key in the branch, no default set', () => {
+    const r = prep('add precommit-config\n', { branch: 'qa/quality-gates' });
+    expect(r.message).toBe('add precommit-config\n');
+    expect(r.notes).toHaveLength(2);
+    expect(r.notes[0]).toMatch(/^no ticket key added: Branch "qa\/quality-gates" has no ticket key\./);
+    expect(r.notes[0]).toContain('git branch -m feature/<TICKET-123>-quality-gates');
+    expect(r.notes[1]).toBe(
+      'no Assisted-by added: no default set. Set it once: git config --global ledgerlink.assistedBy "<tool>, <model>, <version>" (or "none" if you do not use AI tools)',
+    );
+  });
+
+  it('adds nothing to a subject that is only the prefix (a refused message edited again)', () => {
+    for (const subject of ['feat(LCORE-210):', 'feat(LCORE-210): ', 'fix(LCORE-210):'])
+      expect(prep(`${subject}\n`, { assistedBy: 'none', source: 'message' }).message).toBe(`${subject}\n`);
+  });
+
+  it('explains a malformed key and a missing type', () => {
+    const malformed = prep('x\n', { branch: 'feature/lcore-210-x', assistedBy: 'none' }).notes[0];
+    expect(malformed).toContain('"lcore-210" in branch "feature/lcore-210-x" is not a valid ticket key');
+    expect(malformed).toContain('git branch -M feature/LCORE-210-x');
+    const untyped = prep('x\n', { branch: 'LCORE-210-limit-invariants', assistedBy: 'none' }).notes[0];
+    expect(untyped).toContain('carries ticket LCORE-210 but is not named');
+    expect(untyped).toContain('it has no type');
+    expect(untyped).toContain('git branch -m feature/LCORE-210-limit-invariants');
+  });
+
+  it('is quiet on an exempt branch and, about the key, on a detached HEAD', () => {
+    const conventions = { ...DEFAULT_CONVENTIONS, exemptBranches: ['release/*'] };
+    expect(prep('Fix\n', { branch: 'release/2.0', assistedBy: 'none', conventions }).notes).toEqual([]);
+    expect(prep('Fix\n', { branch: 'HEAD', assistedBy: 'none' }).notes).toEqual([]);
+    expect(prep('Fix\n', { branch: 'HEAD', assistedBy: 'None' }).message).toBe('Fix\n');
   });
 
   it('adds the Assisted-by default after a blank line, and says so', () => {
     const r = prep('Add retry\n', { branch: 'main', assistedBy: DEFAULT });
     expect(r.message).toBe(`Add retry\n\nAssisted-by: ${DEFAULT}\n`);
     expect(r.notes).toEqual([
-      expect.stringMatching(/^no ticket key added: branch main has none/),
+      expect.stringMatching(/^no ticket key added: Branch "main" has no ticket key\./),
       `added "Assisted-by: ${DEFAULT}"; delete it if no AI was used (git commit --amend)`,
     ]);
   });
@@ -96,7 +151,7 @@ describe('prepare-commit-msg', () => {
     const editor = '\n# Please enter the commit message for your changes.\n#\n';
     const r = prep(editor, { source: '', assistedBy: DEFAULT });
     expect(r.message).toBe(
-      `LCORE-210: \n\nAssisted-by: ${DEFAULT}\n\n# Please enter the commit message for your changes.\n#\n`,
+      `feat(LCORE-210): \n\nAssisted-by: ${DEFAULT}\n\n# Please enter the commit message for your changes.\n#\n`,
     );
   });
 
@@ -147,7 +202,7 @@ describe('prepare-commit-msg', () => {
 
   it('keeps Windows line endings', () => {
     expect(prep('Add retry\r\n', { assistedBy: DEFAULT }).message).toBe(
-      `LCORE-210: Add retry\r\n\r\nAssisted-by: ${DEFAULT}\r\n`,
+      `feat(LCORE-210): Add retry\r\n\r\nAssisted-by: ${DEFAULT}\r\n`,
     );
   });
 });
