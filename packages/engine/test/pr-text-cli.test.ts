@@ -86,16 +86,51 @@ describeBuilt('pull request title and description from the CLI and the PR gate',
     expect(prTextChecks(res.stdout)).toEqual(['pr.description', 'pr.ticket', 'pr.title']);
   });
 
-  it('the PR gate fails closed on an event that has no pull request', () => {
+  it('the PR gate fails closed on a pull_request event that has no pull request', () => {
     writeFileSync(`${dir}.event.json`, JSON.stringify({ repository: { full_name: 'LedgerLink-ai/link_core' } }));
     const env = cliEnv({
       CI: 'true',
       GITHUB_ACTIONS: 'true',
+      GITHUB_EVENT_NAME: 'pull_request',
       GITHUB_REPOSITORY: 'LedgerLink-ai/link_core',
       GITHUB_EVENT_PATH: `${dir}.event.json`,
     });
     const res = qa(['prepr', '--base', 'main', '--mode', 'ci', ...SCANNERS], { cwd: dir, env });
     expect(res.status).toBe(2);
-    expect(res.stderr).toMatch(/pull_request events/);
+    expect(res.stderr).toMatch(/has no pull request in its payload/);
+  });
+
+  it('qa prepr on a push (no pull request) runs without the title and description checks', () => {
+    writeFileSync(`${dir}.event.json`, JSON.stringify({ repository: { full_name: 'LedgerLink-ai/link_core' } }));
+    const env = cliEnv({
+      CI: 'true',
+      GITHUB_ACTIONS: 'true',
+      GITHUB_EVENT_NAME: 'push',
+      GITHUB_REPOSITORY: 'LedgerLink-ai/link_core',
+      GITHUB_EVENT_PATH: `${dir}.event.json`,
+    });
+    const res = qa(['prepr', '--base', 'main', '--mode', 'ci', '--format', 'json', ...SCANNERS], { cwd: dir, env });
+    expect(res.stderr).not.toMatch(/usage|error/i);
+    expect(res.status).toBe(0);
+    expect(prTextChecks(res.stdout)).toEqual([]);
+  });
+
+  it('only qa prepr reads the event and QA_PR_TITLE; qa check needs --pr-title', () => {
+    const event = {
+      repository: { full_name: 'LedgerLink-ai/link_core', fork: false },
+      pull_request: { title: 'no key here', body: null, head: { repo: { full_name: 'LedgerLink-ai/link_core' } } },
+    };
+    writeFileSync(`${dir}.event.json`, JSON.stringify(event));
+    const env = cliEnv({
+      CI: 'true',
+      GITHUB_ACTIONS: 'true',
+      GITHUB_EVENT_NAME: 'pull_request',
+      GITHUB_REPOSITORY: 'LedgerLink-ai/link_core',
+      GITHUB_EVENT_PATH: `${dir}.event.json`,
+      QA_PR_TITLE: 'no key either',
+    });
+    const res = qa(['check', '--all', '--mode', 'ci', '--format', 'json', ...SCANNERS], { cwd: dir, env });
+    expect(res.stderr).not.toMatch(/usage|error/i);
+    expect(prTextChecks(res.stdout)).toEqual([]);
   });
 });

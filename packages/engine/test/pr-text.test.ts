@@ -110,6 +110,9 @@ describe('pull request title, ticket and description (pr-text)', () => {
     expect(await textFindings(GOOD, onlyLwmng)).toEqual([['pr.ticket', 'unknown-project', false]]);
     const lcore = withPolicy({ ticket_projects: ['LWMNG'], repos: { link_core: { ticket_projects: ['LCORE'] } } });
     expect(await textFindings(GOOD, lcore)).toEqual([]);
+    // Repository names compare without case, as qa validate does.
+    const upper = withPolicy({ repos: { Link_Core: { ticket_projects: ['LWMNG'] } } });
+    expect(await textFindings(GOOD, upper)).toEqual([['pr.ticket', 'unknown-project', false]]);
   });
 
   it('report ticket links that do not point to the ticket site', async () => {

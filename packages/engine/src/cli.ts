@@ -404,17 +404,22 @@ function baselineFor(sel: Selection, mode: RunMode): Set<string> {
  * (or QA_PR_TITLE and QA_PR_BODY_FILE), else, in GitHub Actions, the
  * pull_request event payload GitHub wrote for this run. Undefined when there
  * is neither, which leaves the pr-text checks out of the run.
+ *
+ * Only "qa prepr" (implicit) reads QA_PR_TITLE, QA_PR_BODY_FILE and the event
+ * payload; other commands take the text from --pr-title/--pr-body-file only,
+ * so a "qa check" or "qa baseline" in a pull request job does not pick it up.
+ * An empty QA_PR_TITLE or QA_PR_BODY_FILE counts as not set.
  */
-function prTextFrom(flags: Flags): PrText | undefined {
-  const title = str(flags, 'pr-title') ?? process.env.QA_PR_TITLE;
-  const bodyFile = str(flags, 'pr-body-file') ?? (process.env.QA_PR_BODY_FILE || undefined);
+function prTextFrom(flags: Flags, implicit: boolean): PrText | undefined {
+  const title = str(flags, 'pr-title') ?? ((implicit && process.env.QA_PR_TITLE) || undefined);
+  const bodyFile = str(flags, 'pr-body-file') ?? ((implicit && process.env.QA_PR_BODY_FILE) || undefined);
   if (title !== undefined || bodyFile !== undefined) {
     if (bodyFile !== undefined && !existsSync(bodyFile))
       throw new UsageError(`--pr-body-file (or QA_PR_BODY_FILE): ${bodyFile} does not exist`);
     return { title: title ?? '', body: bodyFile !== undefined ? readFileSync(bodyFile, 'utf8') : '' };
   }
   const eventPath = process.env.GITHUB_EVENT_PATH;
-  if (process.env.GITHUB_ACTIONS !== 'true' || !eventPath) return undefined;
+  if (!implicit || process.env.GITHUB_ACTIONS !== 'true' || !eventPath) return undefined;
   let event: { pull_request?: { title?: unknown; body?: unknown } };
   try {
     event = JSON.parse(readFileSync(eventPath, 'utf8'));
@@ -455,7 +460,7 @@ function runOptions(flags: Flags, sel: Selection, extra: Partial<RunOptions> = {
     source: sel.source,
     commitMessage: msgFile ? readFileSync(msgFile, 'utf8') : undefined,
     branch: str(flags, 'branch'),
-    prText: prTextFrom(flags),
+    prText: prTextFrom(flags, false),
     baseline: baselineFor(sel, mode),
     exclude: str(flags, 'exclude')
       ?.split(',')
@@ -600,12 +605,20 @@ async function prepr(flags: Flags): Promise<number> {
     diff: gitRangeDiffStat(root, base),
     coverage: coverageFiles(root, flags),
   };
-  const opts = runOptions(flags, sel, { stages: [0, 1, 2, 3], pr });
+  const opts = runOptions(flags, sel, { stages: [0, 1, 2, 3], pr, prText: prTextFrom(flags, true) });
   opts.timeBudgetMs = opts.config.policy.local.prepr_time_budget_ms;
   // The PR gate checks the title and description from GitHub's event; without
-  // them those checks could not run, which in CI is never a pass.
-  if (opts.mode === 'ci' && process.env.GITHUB_ACTIONS === 'true' && !opts.prText)
-    throw new UsageError('qa prepr in GitHub Actions runs on pull_request events; this event has no pull request');
+  // them those checks could not run, which in CI is never a pass. Other events
+  // (push, schedule, workflow_dispatch) have no pull request text to check.
+  if (
+    opts.mode === 'ci' &&
+    process.env.GITHUB_ACTIONS === 'true' &&
+    (process.env.GITHUB_EVENT_NAME ?? '').startsWith('pull_request') &&
+    !opts.prText
+  )
+    throw new UsageError(
+      'this pull_request event has no pull request in its payload, so its title and description cannot be checked',
+    );
   // The header is for people; --format json and sarif keep stdout machine-readable.
   if (!flags.quiet && (str(flags, 'format') ?? 'text') === 'text') {
     print(`qa prepr: ${pr.branch} into ${base}, ${pr.commits.length} commit(s), ${sel.files.length} file(s)`);
