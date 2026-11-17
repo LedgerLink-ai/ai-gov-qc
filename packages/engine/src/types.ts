@@ -100,9 +100,26 @@ export interface Exemption {
   expires: string;
 }
 
+export interface RepositoryEntry {
+  name: string;
+  enabled: boolean;
+  owner?: string;
+  approved_by?: string;
+  onboarded?: string;
+  note?: string;
+}
+
+/** Repositories permitted to run the engine (registry/repositories.yaml, issue #8). */
+export interface RepositoryAllowlist {
+  version: 1;
+  org: string;
+  repositories: RepositoryEntry[];
+}
+
 export interface Config {
   dir: string;
   registry: AiRegistry;
+  repositories: RepositoryAllowlist;
   pathTags: PathTags;
   checks: CheckDefinition[];
   policy: Policy;

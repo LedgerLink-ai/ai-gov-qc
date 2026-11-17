@@ -1,0 +1,38 @@
+# Repositories where the QA engine is permitted to run (issue #8). The engine
+# does nothing, silently, in any repository that is not listed here with
+# `enabled: true` and owned by `org`. QA is off by default: adding a
+# repository takes a pull request with code-owner review. `enabled: false`
+# is the administrators' opt-out for a repository that stays listed.
+#
+# Names are the repositories in path-tags.yaml. Owners and approvers are
+# placeholders until LedgerLink names them (client request 4.2).
+version: 1
+org: LedgerLink-ai
+
+repositories:
+  - name: link_core
+    enabled: true
+  - name: link_verify
+    enabled: true
+  - name: fiat2stable-agent
+    enabled: true
+  - name: link_router
+    enabled: true
+  - name: transaction-translator-lib
+    enabled: true
+  - name: link_quote
+    enabled: true
+  - name: link_client_enterprise_wallet
+    enabled: true
+  - name: link_blockchain_listener
+    enabled: true
+  - name: blockchain-listener
+    enabled: true
+  - name: gitops
+    enabled: true
+  - name: link_access_layer
+    enabled: true
+  - name: link-sdk
+    enabled: true
+  - name: link_wallet_manager
+    enabled: true

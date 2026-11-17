@@ -6,7 +6,8 @@ import { TOOL_ADAPTERS } from './adapters/tools';
 import { versionIn } from './adapters/tools/workdir';
 import { parseTrailerValue } from './checks/commit-trailer';
 import { NO_DEFAULT, prepareMessage } from './prepare-message';
-import { loadConfig } from './config';
+import { loadAllowlist, loadConfig } from './config';
+import { gate } from './gate';
 import { runConformance, unavailableTools } from './conform';
 import { today } from './policy';
 import { readBaseline, toJson, toSarif, toText, worthShowing, writeBaseline, writeOutputs } from './report';
@@ -105,6 +106,11 @@ Setup options:
   --no-git-template     Do not set up the git template
   --gitleaks-archive <f>  Install Gitleaks from this downloaded release archive (no network)
   --download-base <url> Download Gitleaks from this mirror: <url>/v<version>/<asset>
+
+Execution gate: check, precommit, prepare-commit-msg, prepush, prepr, baseline, repo-tool and repo-script do
+nothing (exit 0, no output) unless the repository's origin remote is owned by the organisation and the repository
+is enabled in registry/repositories.yaml. In CI, an identity that cannot be verified is an error (exit 2).
+"qa doctor" shows whether QA is enabled for the current repository.
 
 Environment:
   QA_ACTOR              human | agent | ci, as --actor
@@ -549,6 +555,11 @@ function doctor(flags: Flags): number {
 
   const repoRoot = tryGitRoot(root);
   print(`Repository ${repoRoot ?? root}`);
+  {
+    const d = gate(loadAllowlist(str(flags, 'config')), root);
+    if (d.run) row('ok', 'QA enabled', `${d.repo.owner}/${d.repo.name} is in the allowlist`);
+    else row('WARN', 'QA enabled', `no: ${d.reason}; the hooks do nothing here`);
+  }
   if (!repoRoot) {
     row('FAIL', 'git repository', 'not a git repository');
   } else {
@@ -762,6 +773,25 @@ export function satisfies(installed: string, required: string): boolean {
   return true;
 }
 
+/** Commands that act on the repository they run in; the rest are diagnostics or work on this package. */
+const GATED = new Set(['check', 'precommit', 'prepare-commit-msg', 'prepush', 'prepr', 'baseline']);
+
+/**
+ * The execution gate (issue #8). Returns an exit code when the command must
+ * not run here, else undefined. A repository that is not allowlisted is
+ * skipped silently; an identity that cannot be verified in CI is an error.
+ */
+function gateExit(command: string, root: string, configDir?: string): number | undefined {
+  const decision = gate(loadAllowlist(configDir), root);
+  if (decision.run) return undefined;
+  if ('failClosed' in decision) {
+    process.stderr.write(`qa: cannot verify this repository, so QA did not run: ${decision.reason}\n`);
+    // The message hook never blocks a commit.
+    return command === 'prepare-commit-msg' ? 0 : 2;
+  }
+  return 0;
+}
+
 export async function main(argv: string[]): Promise<number> {
   try {
     // A repository's hooks call "qa --require <version> <command>", so a
@@ -782,12 +812,19 @@ export async function main(argv: string[]): Promise<number> {
       }
     }
     // Everything after the package name belongs to the tool, not to qa.
-    if (argv[0] === 'repo-tool') return repoTool(argv.slice(1));
-    if (argv[0] === 'repo-script') return repoScript(argv.slice(1));
+    if (argv[0] === 'repo-tool' || argv[0] === 'repo-script') {
+      const skipped = gateExit(argv[0], rootOf({}));
+      if (skipped !== undefined) return skipped;
+      return argv[0] === 'repo-tool' ? repoTool(argv.slice(1)) : repoScript(argv.slice(1));
+    }
     const { command, positionals, flags } = parseArgs(argv);
     if (flags.help) {
       print(USAGE);
       return 0;
+    }
+    if (GATED.has(command)) {
+      const skipped = gateExit(command, rootOf(flags), str(flags, 'config'));
+      if (skipped !== undefined) return skipped;
     }
     switch (command) {
       case 'check':
