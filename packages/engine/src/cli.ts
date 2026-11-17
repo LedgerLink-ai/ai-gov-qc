@@ -63,6 +63,7 @@ import {
   type ChangedFile,
   type CoverageSummary,
   type FileSource,
+  type PrText,
   type RunMode,
 } from './types';
 import { ENGINE_VERSION } from './version';
@@ -77,9 +78,10 @@ Usage:
                                         the branch name, the Assisted-by default, AI Co-authored-by lines
                                         converted to Assisted-by. Never rejects a commit
   qa prepush    [options]               Stage 2 checks (fast Semgrep) on the commits being pushed (the pre-push hook)
-  qa prepr      [--base <ref>] [--coverage <files>] [options]
+  qa prepr      [--base <ref>] [--coverage <files>] [--pr-title <t> --pr-body-file <f>] [options]
                                         Stage 0-3 checks on everything the pull request contains, plus its
-                                        branch name, commit messages, size and coverage (before opening a PR)
+                                        branch name, commit messages, size and coverage (before opening a PR),
+                                        and its title and description when given (in the PR gate: always)
   qa setup      [setup options]         Install pre-commit, Semgrep and Gitleaks at the pinned versions and connect
                                         the hooks for every repository on this machine, on Windows, macOS or Linux
                                         (once per machine; no file is copied into any repository)
@@ -118,6 +120,9 @@ Options:
   --commit-msg-file <f> Also run commit-message checks on this message
   --coverage <files>    qa prepr: comma-separated Istanbul json-summary files from the test run
                         (default: coverage/coverage-summary.json and */coverage/coverage-summary.json)
+  --pr-title <title>    Also run the pull request title and ticket checks on this title
+  --pr-body-file <f>    Also run the pull request description and ticket checks on this description
+                        (in GitHub Actions both come from the pull_request event when not given)
   --format <fmt>        text | json | sarif  (default: text)
   --quiet               Print nothing when there is nothing to report (used by the git hooks)
   --out <dir>           Also write results.sarif and evidence.json here (CI default: <root>/.qa/out)
@@ -157,6 +162,8 @@ Environment:
   QA_ACTOR              human | agent | ci, as --actor
   QA_AS_OF              as --as-of; set QA_AS_OF=2027-01-08 to try the hooks with every gate switched on
   QA_PR_BASE            qa prepr: the branch the pull request merges into (default: origin/HEAD)
+  QA_PR_TITLE, QA_PR_BODY_FILE
+                        As --pr-title, --pr-body-file
   QA_ASSISTED_BY        "<tool>, <model>, <version>": the Assisted-by default when git config
                         ledgerlink.assistedBy is not set (git config --global ledgerlink.assistedBy "...")
   QA_HOME               Where "qa setup" installs the tools (default: ~/.ledgerlink-qa)
@@ -191,6 +198,8 @@ const VALUE_FLAGS = new Set([
   'fixtures',
   'exclude',
   'coverage',
+  'pr-title',
+  'pr-body-file',
   'home',
   'gitleaks-archive',
   'download-base',
@@ -382,6 +391,41 @@ function baselineFor(sel: Selection, mode: RunMode): Set<string> {
   return readBaseline(sel.root);
 }
 
+/**
+ * The pull request's title and description: --pr-title and --pr-body-file
+ * (or QA_PR_TITLE and QA_PR_BODY_FILE), else, in GitHub Actions, the
+ * pull_request event payload GitHub wrote for this run. Undefined when there
+ * is neither, which leaves the pr-text checks out of the run.
+ *
+ * Only "qa prepr" (implicit) reads QA_PR_TITLE, QA_PR_BODY_FILE and the event
+ * payload; other commands take the text from --pr-title/--pr-body-file only,
+ * so a "qa check" or "qa baseline" in a pull request job does not pick it up.
+ * An empty QA_PR_TITLE or QA_PR_BODY_FILE counts as not set.
+ */
+function prTextFrom(flags: Flags, implicit: boolean): PrText | undefined {
+  const title = str(flags, 'pr-title') ?? ((implicit && process.env.QA_PR_TITLE) || undefined);
+  const bodyFile = str(flags, 'pr-body-file') ?? ((implicit && process.env.QA_PR_BODY_FILE) || undefined);
+  if (title !== undefined || bodyFile !== undefined) {
+    if (bodyFile !== undefined && !existsSync(bodyFile))
+      throw new UsageError(`--pr-body-file (or QA_PR_BODY_FILE): ${bodyFile} does not exist`);
+    return { title: title ?? '', body: bodyFile !== undefined ? readFileSync(bodyFile, 'utf8') : '' };
+  }
+  const eventPath = process.env.GITHUB_EVENT_PATH;
+  if (!implicit || process.env.GITHUB_ACTIONS !== 'true' || !eventPath) return undefined;
+  let event: { pull_request?: { title?: unknown; body?: unknown } };
+  try {
+    event = JSON.parse(readFileSync(eventPath, 'utf8'));
+  } catch {
+    throw new UsageError('the GitHub event payload cannot be read');
+  }
+  const pr = event.pull_request;
+  if (!pr) return undefined;
+  return {
+    title: typeof pr.title === 'string' ? pr.title : '',
+    body: typeof pr.body === 'string' ? pr.body : '',
+  };
+}
+
 function runOptions(flags: Flags, sel: Selection, extra: Partial<RunOptions> = {}): RunOptions {
   const config = loadConfig(str(flags, 'config'));
   const gitAvailable = tryGitRoot(sel.root) !== undefined;
@@ -407,6 +451,7 @@ function runOptions(flags: Flags, sel: Selection, extra: Partial<RunOptions> = {
     changedFiles: sel.files,
     source: sel.source,
     commitMessage: msgFile ? readFileSync(msgFile, 'utf8') : undefined,
+    prText: prTextFrom(flags, false),
     baseline: baselineFor(sel, mode),
     exclude: str(flags, 'exclude')
       ?.split(',')
@@ -523,9 +568,22 @@ async function prepr(flags: Flags): Promise<number> {
     diff: gitRangeDiffStat(root, base),
     coverage: coverageFiles(root, flags),
   };
-  const opts = runOptions(flags, sel, { stages: [0, 1, 2, 3], pr });
+  const opts = runOptions(flags, sel, { stages: [0, 1, 2, 3], pr, prText: prTextFrom(flags, true) });
   opts.timeBudgetMs = opts.config.policy.local.prepr_time_budget_ms;
-  if (!flags.quiet) {
+  // The PR gate checks the title and description from GitHub's event; without
+  // them those checks could not run, which in CI is never a pass. Other events
+  // (push, schedule, workflow_dispatch) have no pull request text to check.
+  if (
+    opts.mode === 'ci' &&
+    process.env.GITHUB_ACTIONS === 'true' &&
+    (process.env.GITHUB_EVENT_NAME ?? '').startsWith('pull_request') &&
+    !opts.prText
+  )
+    throw new UsageError(
+      'this pull_request event has no pull request in its payload, so its title and description cannot be checked',
+    );
+  // The header is for people; --format json and sarif keep stdout machine-readable.
+  if (!flags.quiet && (str(flags, 'format') ?? 'text') === 'text') {
     print(`qa prepr: ${pr.branch} into ${base}, ${pr.commits.length} commit(s), ${sel.files.length} file(s)`);
     const dirty = spawnSync('git', ['status', '--porcelain', '--untracked-files=no'], { cwd: root, encoding: 'utf8' });
     if (dirty.stdout.trim()) print('note: uncommitted changes are not part of the pull request and were not checked');

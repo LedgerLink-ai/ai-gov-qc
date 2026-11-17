@@ -20,7 +20,7 @@
           "kind": { "enum": ["native", "tool"] },
           "tool": { "type": "string", "minLength": 1 },
           "stage": { "enum": [0, 1, 2, 3] },
-          "scope": { "enum": ["file", "commit", "pr", "release"] },
+          "scope": { "enum": ["file", "commit", "pr", "pr-text", "release"] },
           "tags": {
             "oneOf": [{ "const": "all" }, { "type": "array", "minItems": 1, "items": { "type": "string" } }]
           },
