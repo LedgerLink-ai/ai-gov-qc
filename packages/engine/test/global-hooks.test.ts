@@ -52,6 +52,14 @@ describe('hook scripts', () => {
     expect(readFileSync(join(dir, 'post-merge'), 'utf8')).toBe('#!/bin/sh\necho mine\n');
     expect(existsSync(join(dir, 'reference-transaction'))).toBe(false);
 
+    // An install from an older qa, where commit-msg only passed through, needs "qa setup" again.
+    const passThrough = hookScript('post-checkout', QA).replace("hook='post-checkout'", "hook='commit-msg'");
+    writeFileSync(join(dir, 'commit-msg'), passThrough);
+    expect(hookScriptsInstalled(dir)).toBe(false);
+    writeHookScripts(dir, QA);
+    expect(hookScriptsInstalled(dir)).toBe(true);
+    expect(readFileSync(join(dir, 'commit-msg'), 'utf8')).toContain('hook "$hook" "$@"');
+
     removeHookScripts(dir);
     expect(hookScriptsInstalled(dir)).toBe(false);
     expect(existsSync(join(dir, 'post-merge'))).toBe(true);
@@ -123,13 +131,16 @@ describeHooks('commits and pushes through the hooks for every repository', () =>
     ...[
       ['qa-precommit', 'qa precommit --quiet', 'pre-commit'],
       ['qa-prepare-commit-msg', 'qa prepare-commit-msg', 'prepare-commit-msg'],
+      ['qa-commit-msg', 'qa commit-msg --quiet', 'commit-msg'],
       ['qa-prepush', 'qa prepush --quiet', 'pre-push'],
     ].flatMap(([id, entry, stage]) => [
       `      - id: ${id}`,
       `        name: ${id}`,
       `        entry: ${entry}`,
       '        language: system',
-      ...(stage === 'prepare-commit-msg' ? [] : ['        pass_filenames: false', '        always_run: true']),
+      ...(stage === 'prepare-commit-msg' || stage === 'commit-msg'
+        ? []
+        : ['        pass_filenames: false', '        always_run: true']),
       `        stages: [${stage}]`,
     ]),
     '',
@@ -272,12 +283,12 @@ describeHooks('commits and pushes through the hooks for every repository', () =>
     expect(readFileSync(marker, 'utf8')).toMatch(/^refs\/heads\/main [0-9a-f]{40} refs\/heads\/main /);
   }, 300_000);
 
-  it('pre-fills the ticket key from the branch name', () => {
-    const repo = clone(LEDGERLINK, 'LCORE-212-refund-key');
+  it('pre-fills the type and ticket key from the branch name', () => {
+    const repo = clone(LEDGERLINK, 'feature/LCORE-212-refund-key');
     writeFileSync(join(repo.dir, 'e.md'), 'e\n');
     repo.git('add', '.');
     expect(repo.git('commit', '-m', 'Add refund key').status).toBe(0);
-    expect(String(repo.git('log', '-1', '--format=%s').stdout).trim()).toBe('LCORE-212: Add refund key');
+    expect(String(repo.git('log', '-1', '--format=%s').stdout).trim()).toBe('feat(LCORE-212): Add refund key');
   }, 300_000);
 
   it('lets commits through, with a warning, when qa is no longer installed', () => {

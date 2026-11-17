@@ -5,8 +5,8 @@
 # source, so every developer runs the same engine and rules.
 
 - id: qa-precommit
-  name: 'qa: secrets, agent instruction files, MCP allowlist, protected paths'
-  description: Stage 0-1 checks on the staged changes. Gitleaks must be on PATH; without it the secret scan runs only in CI.
+  name: 'qa: secrets, agent instruction files, MCP allowlist, protected paths, branch name'
+  description: Stage 0-1 checks on the staged changes, and a ticket key in the branch name (<type>/<TICKET-123>-<description>). Gitleaks must be on PATH; without it the secret scan runs only in CI.
   entry: qa precommit --quiet
   language: node
   pass_filenames: false
@@ -40,11 +40,21 @@
 
 - id: qa-prepare-commit-msg
   name: 'qa: pre-fill ticket key and Assisted-by'
-  description: Pre-fills the ticket key from the branch name and the Assisted-by default (git config ledgerlink.assistedBy); converts AI Co-authored-by lines. Never rejects a commit.
+  description: 'Pre-fills "<type>(<TICKET-123>): " from the branch name and the Assisted-by default (git config ledgerlink.assistedBy); converts AI Co-authored-by lines. Never rejects a commit.'
   entry: qa prepare-commit-msg
   language: node
   verbose: true
   stages: [prepare-commit-msg]
+  minimum_pre_commit_version: '3.2.0'
+
+- id: qa-commit-msg
+  name: 'qa: commit message (ticket from the branch, Assisted-by form)'
+  description: 'The subject follows "<type>(<TICKET-123>): <description>" with the ticket of the branch; the Assisted-by form.'
+  entry: qa commit-msg --quiet
+  language: node
+  require_serial: true
+  verbose: true
+  stages: [commit-msg]
   minimum_pre_commit_version: '3.2.0'
 
 - id: qa-prepush
