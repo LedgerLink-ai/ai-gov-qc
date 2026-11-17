@@ -39,7 +39,7 @@ jobs:
       - name: qa setup
         shell: bash
         run: |
-          node packages/engine/bin/qa.js setup --config . --home "$RUNNER_TEMP/qa-home" --no-git-template
+          node packages/engine/bin/qa.js setup --config . --home "$RUNNER_TEMP/qa-home" --no-global-hooks --no-git-template
           echo "QA_HOME=$RUNNER_TEMP/qa-home" >> "$GITHUB_ENV"
           echo "$RUNNER_TEMP/qa-home/bin" >> "$GITHUB_PATH"
       # Unit, integration, end-to-end (CLI and git hook lifecycle), security,
