@@ -50,7 +50,9 @@ export function prTextPolicy(ctx: RunContext): PrTextPolicy {
     ticket_url: pr?.ticket_url,
     description_sections: pr?.description_sections,
   });
-  return { ...DEFAULTS, ...global, ...defined(pr?.repos?.[ctx.repo]) };
+  // Repository names compare without case, as GitHub's do (and qa validate's).
+  const own = Object.entries(pr?.repos ?? {}).find(([name]) => name.toLowerCase() === ctx.repo.toLowerCase())?.[1];
+  return { ...DEFAULTS, ...global, ...defined(own) };
 }
 
 const quote = (s: string): string => {
