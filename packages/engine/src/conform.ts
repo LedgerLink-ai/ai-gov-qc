@@ -22,6 +22,8 @@ export interface Fixture {
   requires?: string[];
   pending?: string;
   commit_message?: string;
+  /** The branch being committed to: runs branch.ticket, and commit.message against it. */
+  branch?: string;
   pr_title?: string;
   pr_body?: string;
   baseline_from_self?: boolean;
@@ -126,6 +128,7 @@ async function runApi(
     changedFiles: listFiles(root).map((path) => ({ path, status: 'A' as const })),
     source: directorySource(root),
     commitMessage: fixture.commit_message,
+    branch: fixture.branch,
     prText: fixturePrText(fixture),
     baseline,
     exclude: excludedChecks(config),
@@ -176,6 +179,7 @@ function runCli(
   const excluded = excludedChecks(config);
   if (excluded.length > 0) common.push('--exclude', excluded.join(','));
   const extra: string[] = [];
+  if (fixture.branch !== undefined) extra.push('--branch', fixture.branch);
   if (fixture.commit_message !== undefined) {
     const msgFile = commitMessageFile(root);
     writeFileSync(msgFile, fixture.commit_message);

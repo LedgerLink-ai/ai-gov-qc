@@ -11,6 +11,22 @@ changing its hooks.
 
 ## 0.2.3
 
+Ticket-based branch names and commit messages (AIQC-87, issue #10)
+
+- Branches are named `<type>/<TICKET-123>-<short-description>` and commit
+  subjects `<type>(<TICKET-123>): <description>`. The ticket key comes from
+  the branch, never from the message.
+- New checks, in report mode until a blocking date is agreed:
+  `branch.ticket` (pre-commit), `commit.message` (the new commit-msg hook,
+  `qa commit-msg`) and `pr.commit-messages` (`qa prepr` and the PR gate).
+  `pr.branch-name` now applies the same convention, as an error.
+- `qa prepare-commit-msg` pre-fills `<type>(<TICKET-123>): ` instead of
+  `<TICKET-123>: `, and keeps a type the developer wrote (`fix: x`).
+- `policy.yaml` `conventions` section, per repository under
+  `conventions.repos`; `pr.branch_pattern` is replaced by it.
+- `qa setup` connects the commit-msg hook; `qa doctor` reports hooks set up by
+  an earlier qa as out of date.
+
 Production hardening (issue #15). Compatible with 0.2.x: repositories pinned
 with `qa --require 0.2.0` to `0.2.2` keep working.
 

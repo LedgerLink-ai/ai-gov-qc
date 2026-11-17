@@ -1,4 +1,4 @@
-import type { CheckDefinition, Finding, PrRepoOverride, PrSection, RunContext } from '../types';
+import type { CheckDefinition, Finding, Policy, PrRepoOverride, PrSection, RunContext } from '../types';
 
 // Checks on the pull request's own text (scope pr-text): its title, its ticket
 // reference and its description. They run in the PR gate, where the title and
@@ -40,9 +40,19 @@ const DEFAULTS: PrTextPolicy = {
 const defined = (o: PrRepoOverride | undefined): PrRepoOverride =>
   Object.fromEntries(Object.entries(o ?? {}).filter(([, v]) => v !== undefined)) as PrRepoOverride;
 
+/** The override for a repository; names compare without case, as GitHub's do (and qa validate's). */
+export function byRepo<T>(repos: Record<string, T> | undefined, repo: string): T | undefined {
+  return Object.entries(repos ?? {}).find(([name]) => name.toLowerCase() === repo.toLowerCase())?.[1];
+}
+
 /** The conventions for this repository: the defaults, then policy.yaml `pr`, then `pr.repos.<repo>`. */
 export function prTextPolicy(ctx: RunContext): PrTextPolicy {
-  const pr = ctx.config.policy.pr;
+  return prTextPolicyFor(ctx.config.policy, ctx.repo);
+}
+
+/** As prTextPolicy, from the policy and repository name alone (the commit message hooks). */
+export function prTextPolicyFor(policy: Policy, repo: string): PrTextPolicy {
+  const pr = policy.pr;
   const global = defined({
     title_pattern: pr?.title_pattern,
     title_example: pr?.title_example,
@@ -50,9 +60,7 @@ export function prTextPolicy(ctx: RunContext): PrTextPolicy {
     ticket_url: pr?.ticket_url,
     description_sections: pr?.description_sections,
   });
-  // Repository names compare without case, as GitHub's do (and qa validate's).
-  const own = Object.entries(pr?.repos ?? {}).find(([name]) => name.toLowerCase() === ctx.repo.toLowerCase())?.[1];
-  return { ...DEFAULTS, ...global, ...defined(own) };
+  return { ...DEFAULTS, ...global, ...defined(byRepo(pr?.repos, repo)) };
 }
 
 const quote = (s: string): string => {

@@ -12,11 +12,12 @@ Design: `LedgerLink QA Harness Technical Design` V2.2. Build order: `qa-harness-
 
 - `.pre-commit-hooks.yaml` and `templates/pre-commit-config.yaml`
 - Gitleaks rules for blockchain private keys and BIP39 mnemonics
-- `qa prepare-commit-msg`: ticket key from the branch, Assisted-by default, AI Co-authored-by converted (no subject format enforced, since 3 Nov)
+- `qa prepare-commit-msg`: `<type>(<TICKET-123>): ` from the branch, Assisted-by default, AI Co-authored-by converted
 - the `Assisted-by: <tool>, <model>, <version>` format
 - `sast.semgrep` at pre-push
 - `qa prepush` and `qa doctor`
 - `qa prepr` with the pull request checks `pr.branch-name`, `pr.commits`, `pr.diff-size` and `tests.coverage`
+- ticket-based branch names and commit messages (AIQC-87): `branch.ticket` (pre-commit), `commit.message` (the new commit-msg hook, `qa commit-msg`) and `pr.commit-messages` require `<type>/<TICKET-123>-<description>` branches and `<type>(<TICKET-123>): <description>` subjects, the key taken from the branch; report only until a blocking date is agreed ([docs/BRANCH-AND-COMMIT-CONVENTIONS.md](docs/BRANCH-AND-COMMIT-CONVENTIONS.md))
 - pull request conventions (AIQC-86): `pr.title`, `pr.ticket` and `pr.description` check the title, ticket reference and description in the pull request check, with a standard template ([docs/PR-CONVENTIONS.md](docs/PR-CONVENTIONS.md))
 - the `repo-script` and `repo-tool` hooks for each repository's tests, type check and build
 - the hook sandbox
@@ -83,7 +84,7 @@ Findings are plain text with a fix hint and the control and rule IDs from `repo-
 
 ## Where the engine runs (execution gate)
 
-The engine acts only in a repository that is owned by `LedgerLink-ai` and listed with `enabled: true` in [registry/repositories.yaml](registry/repositories.yaml). Anywhere else it does nothing, silently, and exits 0: personal repositories, other organisations, forks, unlisted repositories, and repositories an administrator disabled. The hook commands (`check`, `precommit`, `prepare-commit-msg`, `prepush`, `prepr`, `baseline`, `repo-tool`, `repo-script`) are gated; `setup`, `doctor`, `rules`, `validate`, `conform`, `version` and `help` are not. `qa doctor` shows whether QA is enabled for the current repository.
+The engine acts only in a repository that is owned by `LedgerLink-ai` and listed with `enabled: true` in [registry/repositories.yaml](registry/repositories.yaml). Anywhere else it does nothing, silently, and exits 0: personal repositories, other organisations, forks, unlisted repositories, and repositories an administrator disabled. The hook commands (`check`, `precommit`, `prepare-commit-msg`, `commit-msg`, `prepush`, `prepr`, `baseline`, `repo-tool`, `repo-script`) are gated; `setup`, `doctor`, `rules`, `validate`, `conform`, `version` and `help` are not. `qa doctor` shows whether QA is enabled for the current repository.
 
 - **Local:** identity is the `origin` remote (`owner/name`), not the folder name or `--repo`. A missing or unrecognised origin means skip. A developer controls their own remote, so this keeps the hooks out of unrelated repositories but is not tamper-proof.
 - **GitHub Actions:** identity comes from `GITHUB_REPOSITORY` and the event payload, not the checkout. Forks, and pull requests from forks, are skipped. An identity that cannot be verified is exit 2 (fail closed).
@@ -126,7 +127,7 @@ To add a check:
 
 Changes reach `main` in two steps, each a pull request:
 
-1. A feature branch (for example `LCORE-210-limit-invariants`) into `dev`. The `ci` checks on Windows, macOS and Linux must pass.
+1. A feature branch (for example `feature/LCORE-210-limit-invariants`) into `dev`. The `ci` checks on Windows, macOS and Linux must pass.
 2. `dev` into `main`, merged with a merge commit so the two branches stay in step. The `ci` checks and `branch-policy` must pass; `branch-policy` fails any pull request into `main` that does not come from `dev`.
 
 Both branches take changes only through pull requests, with conversations resolved, and cannot be force-pushed or deleted. Release tags (`v*`) cannot be moved or deleted. When a merge into `main` changes the version in `package.json`, the release workflow tags it and publishes the package ([docs/PACKAGE.md](docs/PACKAGE.md)).
