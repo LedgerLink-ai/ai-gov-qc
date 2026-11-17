@@ -48,14 +48,18 @@ describe('branch names', () => {
   });
 
   it('refuses an incorrectly formatted ticket key, suggesting the right one', () => {
-    for (const [b, suggestion] of [
-      ['feature/ll-1234-user-auth', 'feature/LL-1234-user-auth'],
-      ['bugfix/LL1234-login', 'bugfix/LL-1234-login'],
-      ['hotfix/LL_3456-patch', 'hotfix/LL-3456-patch'],
+    // A rename that only changes case needs -M: on Windows and macOS, -m says the branch exists.
+    for (const [b, suggestion, flag] of [
+      ['feature/ll-1234-user-auth', 'feature/LL-1234-user-auth', '-M'],
+      ['bugfix/LL1234-login', 'bugfix/LL-1234-login', '-m'],
+      ['hotfix/LL_3456-patch', 'hotfix/LL-3456-patch', '-m'],
     ]) {
       const a = analyseBranch(b, conv());
       if (a.ok || a.exempt) throw new Error(`${b} accepted`);
-      expect([a.ruleId, a.fixHint]).toEqual(['malformed-ticket', `Rename the branch: git branch -m ${suggestion}`]);
+      expect([a.ruleId, a.fixHint]).toEqual([
+        'malformed-ticket',
+        `Rename the branch: git branch ${flag} ${suggestion}`,
+      ]);
     }
   });
 
@@ -153,6 +157,12 @@ describe('configuration', () => {
     expect(problems({ branch_types: { story: 'story' } })).toEqual([
       'policy.yaml: conventions.branch_types.story is "story", which is not one of the commit_types',
     ]);
+    // The default branch types (hotfix -> hotfix, ...) must fit a repository's own commit_types too.
+    expect(problems({ repos: { link_core: { commit_types: ['feat', 'fix'] } } })).toEqual(
+      expect.arrayContaining([
+        'policy.yaml: conventions.repos.link_core.branch_types.hotfix is "hotfix", which is not one of the commit_types',
+      ]),
+    );
     expect(problems({ repos: { nowhere: {} } })).toEqual([
       'policy.yaml: conventions.repos.nowhere is not a repository in repositories.yaml',
     ]);

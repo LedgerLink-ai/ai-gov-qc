@@ -42,7 +42,7 @@ The pre-filling, in detail:
 | Rule               | Example                                       | Fix (the message gives the exact command)                                                                                   |
 | ------------------ | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `no-ticket`        | `main`, `feature/user-authentication`         | `git branch -m feature/<TICKET-123>-…`, or on `main`: `git switch -c feature/<TICKET-123>-…` (staged changes come along)    |
-| `malformed-ticket` | `feature/ll-1234-auth`, `bugfix/LL1234-x`     | `git branch -m feature/LL-1234-auth`: the project key in capitals, a hyphen, the number                                     |
+| `malformed-ticket` | `feature/ll-1234-auth`, `bugfix/LL1234-x`     | `git branch -M feature/LL-1234-auth` (`-M` when only the case changes; `-m` says the branch exists on Windows and macOS)    |
 | `format`           | `LL-1234-auth`, `wip/LL-1234-auth`            | `git branch -m feature/LL-1234-auth`: a known type, then `/`, then the key                                                  |
 | `unknown-project`  | `feature/XYZ-1-x` where only `LL` is accepted | Use a ticket from an accepted project                                                                                       |
 | `format` (commit)  | `fixed the bug`                               | `fix(LL-1234): <description>`; the refused message is kept: `git commit -e -F "$(git rev-parse --git-path COMMIT_EDITMSG)"` |

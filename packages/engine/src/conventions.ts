@@ -123,7 +123,10 @@ export function analyseBranch(branch: string, conv: Conventions): BranchAnalysis
     fixHint: string,
     ticket?: string,
   ): BranchAnalysis => ({ ok: false, branch, ruleId, message, fixHint, ...(ticket ? { ticket } : {}) });
-  const rename = (name: string): string => `Rename the branch: git branch -m ${name}`;
+  // A rename that only changes case needs -M on a case-insensitive file system
+  // (Windows, macOS), where -m says the branch already exists.
+  const rename = (name: string): string =>
+    `Rename the branch: git branch ${name.toLowerCase() === branch.toLowerCase() ? '-M' : '-m'} ${name}`;
   const defaultType = types.includes('feature') ? 'feature' : (types[0] ?? 'feature');
 
   const m = new RegExp(`^(${typeAlternation(types)})/(${key})(?:[-_.](.*))?$`).exec(branch);

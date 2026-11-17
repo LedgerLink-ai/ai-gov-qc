@@ -103,10 +103,15 @@ describe('prepare-commit-msg', () => {
     );
   });
 
+  it('adds nothing to a subject that is only the prefix (a refused message edited again)', () => {
+    for (const subject of ['feat(LCORE-210):', 'feat(LCORE-210): ', 'fix(LCORE-210):'])
+      expect(prep(`${subject}\n`, { assistedBy: 'none', source: 'message' }).message).toBe(`${subject}\n`);
+  });
+
   it('explains a malformed key and a missing type', () => {
     const malformed = prep('x\n', { branch: 'feature/lcore-210-x', assistedBy: 'none' }).notes[0];
     expect(malformed).toContain('"lcore-210" in branch "feature/lcore-210-x" is not a valid ticket key');
-    expect(malformed).toContain('git branch -m feature/LCORE-210-x');
+    expect(malformed).toContain('git branch -M feature/LCORE-210-x');
     const untyped = prep('x\n', { branch: 'LCORE-210-limit-invariants', assistedBy: 'none' }).notes[0];
     expect(untyped).toContain('carries ticket LCORE-210 but is not named');
     expect(untyped).toContain('it has no type');

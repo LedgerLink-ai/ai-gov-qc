@@ -79,8 +79,11 @@ describeBuilt('ticket-based branch names and commit messages through the git hoo
     const res = git('commit', '-m', 'add bounded retry');
     expect(res.status).not.toBe(0);
     expect(out(res)).toContain('is not a valid ticket key');
-    expect(out(res)).toContain('git branch -m feature/LCORE-212-bounded-retry');
+    expect(out(res)).toContain('git branch -M feature/LCORE-212-bounded-retry');
     expect(subject()).toBe('init');
+    // The suggested command works, also on a case-insensitive file system.
+    expect(git('branch', '-M', 'feature/LCORE-212-bounded-retry').status).toBe(0);
+    expect(git('branch', '--show-current').stdout.trim()).toBe('feature/LCORE-212-bounded-retry');
   });
 
   it('allows a commit on a valid ticket branch and writes the ticket key into the message', () => {
@@ -107,6 +110,17 @@ describeBuilt('ticket-based branch names and commit messages through the git hoo
     expect(scoped.status).not.toBe(0);
     expect(out(scoped)).toContain('Write it as "feat(LCORE-212): <description>"');
     expect(subject()).toBe('fix(LCORE-212): off-by-one in the poller');
+  });
+
+  it('a rebase does not rewrite the subjects of the commits it replays', () => {
+    expect(git('switch', '-q', '-c', 'feature/LCORE-212-replay').status).toBe(0);
+    writeFileSync(join(repo.dir, 'replay.md'), 'r\n');
+    git('add', '.');
+    // As a teammate without the hooks committed it (--no-verify still runs prepare-commit-msg).
+    expect(git('-c', 'core.hooksPath=no-hooks-here', 'commit', '-q', '-m', 'wip from a teammate').status).toBe(0);
+    expect(subject()).toBe('wip from a teammate');
+    expect(git('rebase', '-q', '--force-rebase', 'HEAD~1').status).toBe(0);
+    expect(subject()).toBe('wip from a teammate');
   });
 
   it('reads the branch being rebased while HEAD is detached', () => {
