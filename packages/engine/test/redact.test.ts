@@ -45,6 +45,13 @@ describe('redaction', () => {
     );
   });
 
+  it('keeps names of people, such as the pull request author, readable', () => {
+    const env = { QA_PR_AUTHOR: 'octocat-dev', GIT_AUTHOR_NAME: 'Octo Cat Developer' };
+    expect(redact('author octocat-dev on feat/octocat-dev-fix', env)).toBe(
+      'author octocat-dev on feat/octocat-dev-fix',
+    );
+  });
+
   it('masks a registered secret and redacts nested report data', () => {
     registerSecret('report-token-abcdef');
     expect(redactDeep({ a: ['x report-token-abcdef y'], b: { c: 1 } }, {})).toEqual({
