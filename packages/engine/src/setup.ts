@@ -376,9 +376,10 @@ function setupGitTemplate(row: Row): boolean {
   return set.ok;
 }
 
+/** A global git setting as it is (not redacted): qa compares it with its own paths. Redact it to print it. */
 const globalGet = (key: string): string | undefined => {
   const r = run('git', ['config', '--global', '--get', key]);
-  return r.ok && r.out ? r.out : undefined;
+  return r.ok && r.raw ? r.raw : undefined;
 };
 
 /**
@@ -393,7 +394,7 @@ function setupGlobalHooks(row: Row): boolean {
     row(
       'FAIL',
       'global hooks',
-      `git's global core.hooksPath is already "${current}"; left as it is. To connect the qa hooks for every repository, unset it (git config --global --unset core.hooksPath) and run "qa setup" again, or run "qa setup --no-global-hooks" to connect new clones only`,
+      `git's global core.hooksPath is already "${redact(current)}"; left as it is. To connect the qa hooks for every repository, unset it (git config --global --unset core.hooksPath) and run "qa setup" again, or run "qa setup --no-global-hooks" to connect new clones only`,
     );
     return false;
   }
@@ -429,7 +430,7 @@ function setupGlobalHooks(row: Row): boolean {
       row(
         'WARN',
         'git template',
-        `init.templateDir is ${tpl}, which copies pre-commit's hooks into new clones; not needed with the global hooks (harmless, but slower outside LedgerLink). Remove it: git config --global --unset init.templateDir`,
+        `init.templateDir is ${redact(tpl)}, which copies pre-commit's hooks into new clones; not needed with the global hooks (harmless, but slower outside LedgerLink). Remove it: git config --global --unset init.templateDir`,
       );
   }
   return true;
@@ -447,7 +448,7 @@ export function uninstallGlobalHooks(print: (s: string) => void): number {
       return 1;
     }
     print("  ok    global hooks   git's global core.hooksPath unset; every repository uses its own .git/hooks again");
-  } else if (current) print(`  ok    global hooks   core.hooksPath is "${current}", not qa's; left as it is`);
+  } else if (current) print(`  ok    global hooks   core.hooksPath is "${redact(current)}", not qa's; left as it is`);
   else print('  ok    global hooks   not set');
   removeHookScripts(dir);
   print(`result: DONE. The tools stay in ${qaHome()}; delete that folder to remove them too.`);
