@@ -1,4 +1,4 @@
-import { prTextPolicyFor } from './checks/pr-text';
+import { byRepo, prTextPolicyFor } from './checks/pr-text';
 import { globMatcher } from './tags';
 import type { ConventionsPolicy, Policy } from './types';
 
@@ -65,7 +65,7 @@ export function conventionsFor(policy: Policy, repo: string): Conventions {
   return {
     ...DEFAULT_CONVENTIONS,
     ...fromPolicy(c),
-    ...fromPolicy(c?.repos?.[repo]),
+    ...fromPolicy(byRepo(c?.repos, repo)),
     ticketProjects: prTextPolicyFor(policy, repo).ticket_projects,
   };
 }

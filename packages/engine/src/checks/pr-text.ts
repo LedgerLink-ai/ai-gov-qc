@@ -40,6 +40,11 @@ const DEFAULTS: PrTextPolicy = {
 const defined = (o: PrRepoOverride | undefined): PrRepoOverride =>
   Object.fromEntries(Object.entries(o ?? {}).filter(([, v]) => v !== undefined)) as PrRepoOverride;
 
+/** The override for a repository; names compare without case, as GitHub's do (and qa validate's). */
+export function byRepo<T>(repos: Record<string, T> | undefined, repo: string): T | undefined {
+  return Object.entries(repos ?? {}).find(([name]) => name.toLowerCase() === repo.toLowerCase())?.[1];
+}
+
 /** The conventions for this repository: the defaults, then policy.yaml `pr`, then `pr.repos.<repo>`. */
 export function prTextPolicy(ctx: RunContext): PrTextPolicy {
   return prTextPolicyFor(ctx.config.policy, ctx.repo);
@@ -55,7 +60,7 @@ export function prTextPolicyFor(policy: Policy, repo: string): PrTextPolicy {
     ticket_url: pr?.ticket_url,
     description_sections: pr?.description_sections,
   });
-  return { ...DEFAULTS, ...global, ...defined(pr?.repos?.[repo]) };
+  return { ...DEFAULTS, ...global, ...defined(byRepo(pr?.repos, repo)) };
 }
 
 const quote = (s: string): string => {
