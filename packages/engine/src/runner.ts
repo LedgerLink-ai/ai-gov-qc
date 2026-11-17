@@ -19,7 +19,6 @@ import {
   type FileSource,
   type Finding,
   type PrInfo,
-  type PrText,
   type RunContext,
   type RunMode,
   type RunResult,
@@ -38,10 +37,7 @@ export interface RunOptions {
   changedFiles: ChangedFile[];
   source: FileSource;
   commitMessage?: string;
-  /** The branch being committed to (pre-commit and commit-msg hooks); leaves branch-scope checks out when absent. */
-  branch?: string;
   pr?: PrInfo;
-  prText?: PrText;
   /** Fingerprints from the repository's dated baseline (.qa/baseline.sarif). */
   baseline?: Set<string>;
   /** Restrict the run to these scopes, e.g. only `commit` for a commit message. */
@@ -90,9 +86,7 @@ function buildContext(opts: RunOptions): RunContext {
     tags,
     source: opts.source,
     commitMessage: opts.commitMessage,
-    branch: opts.branch,
     pr: opts.pr,
-    prText: opts.prText,
     filesFor(def: CheckDefinition): ChangedFile[] {
       let extra = extraMatchers.get(def.id);
       if (!extra) {
@@ -122,14 +116,10 @@ function notApplicable(def: CheckDefinition, ctx: RunContext, opts: RunOptions):
   if (opts.scopes && !opts.scopes.includes(def.scope)) return `scope ${def.scope} is not part of this run`;
   if (opts.stages && !opts.stages.includes(def.stage)) return STAGE_RUNS[def.stage];
   switch (def.scope) {
-    case 'branch':
-      return ctx.branch === undefined ? 'runs in the pre-commit hook, on the branch being committed to' : undefined;
     case 'commit':
       return ctx.commitMessage === undefined ? 'no commit message in this run' : undefined;
     case 'pr':
       return ctx.pr === undefined ? STAGE_RUNS[3] : undefined;
-    case 'pr-text':
-      return ctx.prText === undefined ? 'runs on the pull request, or with --pr-title and --pr-body-file' : undefined;
     case 'release':
       return `scope ${def.scope} runs in the gate or release job`;
     case 'file':

@@ -2,7 +2,7 @@ export type Tag = string;
 export type Level = 'error' | 'warning' | 'note';
 export type Actor = 'human' | 'agent' | 'ci';
 export type RunMode = 'local' | 'ci';
-export type Scope = 'file' | 'branch' | 'commit' | 'pr' | 'pr-text' | 'release';
+export type Scope = 'file' | 'commit' | 'pr' | 'release';
 export type PolicyMode = 'off' | 'report' | 'block';
 export type RegistryStatus = 'approved' | 'pending-inventory' | 'blocked' | 'retired';
 
@@ -70,8 +70,6 @@ export interface Policy {
   local: { time_budget_ms: number; prepush_time_budget_ms?: number; prepr_time_budget_ms?: number };
   /** Limits for the pull request checks (stage 3: "qa prepr" and the PR gate). */
   pr?: PrPolicy;
-  /** Ticket-based branch names and commit messages (AIQC-87). */
-  conventions?: ConventionsPolicy;
   /** Exact versions of the tools every machine runs; `qa doctor` compares them. */
   tools?: Record<string, string>;
   protected: { tags: Tag[]; globs: string[] };
@@ -98,6 +96,8 @@ export interface TimeoutPolicy {
 }
 
 export interface PrPolicy {
+  /** Branch names a pull request may come from. */
+  branch_pattern: string;
   /** Changed lines (added plus deleted) above which a warning is shown. */
   diff_warn_lines: number;
   /** Changed lines above which the pull request should be split. */
@@ -106,55 +106,7 @@ export interface PrPolicy {
   diff_ignore: string[];
   /** Minimum line coverage, in percent, from the test run's coverage summary. */
   coverage_min_lines: number;
-  /** Pull request title format, e.g. "<TICKET-123>: <description>". */
-  title_pattern?: string;
-  /** What title_pattern asks for, in words, for the finding's message. */
-  title_example?: string;
-  /** Jira project keys a ticket reference may use; empty or absent accepts any key. */
-  ticket_projects?: string[];
-  /** Base URL of ticket links, e.g. https://ledgerlink.atlassian.net/browse/. */
-  ticket_url?: string;
-  /** Sections the description must contain, in the repository's pull request template. */
-  description_sections?: PrSection[];
-  /** Overrides for single repositories, by repository name. */
-  repos?: Record<string, PrRepoOverride>;
 }
-
-/**
- * Branch names and commit messages (AIQC-87). A branch is named
- * <type>/<TICKET-123>-<short-description>; commit subjects follow
- * commit_template, with the ticket key taken from the branch.
- */
-export interface ConventionsPolicy {
-  /** A ticket key, as a regular expression without anchors, e.g. "[A-Z][A-Z0-9]+-\d+" for Jira. */
-  ticket_pattern?: string;
-  /** Branch type (the part before the first "/") to the commit type it implies. */
-  branch_types?: Record<string, string>;
-  /** Types a commit subject may start with. */
-  commit_types?: string[];
-  /** The commit subject prefix, with {type} and {ticket}, e.g. "{type}({ticket}): ". */
-  commit_template?: string;
-  /** Branches that need no ticket key (globs), e.g. release/*. */
-  exempt_branches?: string[];
-  /** Overrides for single repositories, by repository name. */
-  repos?: Record<string, ConventionsRepoOverride>;
-}
-
-export type ConventionsRepoOverride = Omit<ConventionsPolicy, 'repos'>;
-
-/** A required section of the pull request description: a Markdown heading. */
-export interface PrSection {
-  name: string;
-  /** Other headings accepted for this section, e.g. "Linked ticket" for "Ticket". */
-  aliases?: string[];
-  /** The section must contain a task list (- [ ] item). */
-  checklist?: boolean;
-}
-
-/** What a repository may override in the pull request conventions. */
-export type PrRepoOverride = Partial<
-  Pick<PrPolicy, 'title_pattern' | 'title_example' | 'ticket_projects' | 'ticket_url' | 'description_sections'>
->;
 
 export interface Exemption {
   id: string;
@@ -226,12 +178,8 @@ export interface RunContext {
   tags: Set<Tag>;
   source: FileSource;
   commitMessage?: string;
-  /** The branch being committed to; set by the pre-commit and commit-msg hooks, or --branch. */
-  branch?: string;
   /** The pull request being prepared; only in a "qa prepr" run or the PR gate. */
   pr?: PrInfo;
-  /** The pull request's title and description; from the PR gate, or --pr-title and --pr-body-file. */
-  prText?: PrText;
   /** Files this check should look at (by its tags and extra globs), excluding deletions. */
   filesFor(def: CheckDefinition): ChangedFile[];
   /** Time limit for one run of this check's scanner, in milliseconds. */
@@ -255,13 +203,6 @@ export interface CoverageSummary {
   file: string;
   /** Undefined when the test run measured no lines at all. */
   linesPct?: number;
-}
-
-/** The pull request's title and description, as GitHub has them. */
-export interface PrText {
-  title: string;
-  /** The description; empty when the pull request has none. */
-  body: string;
 }
 
 export interface PrInfo {

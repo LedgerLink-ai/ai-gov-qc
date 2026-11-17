@@ -21,81 +21,14 @@ local:
 # Pull request checks (stage 3), run by "qa prepr" before a pull request is
 # opened and by the PR gate.
 pr:
-  # The branch name follows `conventions` below (pr.branch-name).
+  # A ticket key in the branch name (LCORE-210-limit-invariants), which the
+  # prepare-commit-msg hook copies into each commit message. Recommended, not
+  # required (Development Guideline Policy, "Commit messages and signing").
+  branch_pattern: '(?:^|/)[A-Z][A-Z0-9]+-\d+(?:$|[-_./])'
   diff_warn_lines: 400
   diff_max_lines: 1000
   diff_ignore: ['**/yarn.lock', '**/package-lock.json', '**/pnpm-lock.yaml', '**/*.snap']
   coverage_min_lines: 80
-
-  # The pull request's own title and description (pr.title, pr.ticket,
-  # pr.description; AIQC-86). Checked in the PR gate from GitHub's event, and by
-  # "qa prepr --pr-title ... --pr-body-file ..." before opening one.
-  title_pattern: '^[A-Z][A-Z0-9]+-\d+: \S'
-  title_example: '"<TICKET-123>: <short description>", e.g. "LCORE-212: Add idempotency key to refund endpoint"'
-  # Jira project keys a ticket reference may use. Empty: any key of the form
-  # ABC-123. Set them per repository under repos.<name>.ticket_projects.
-  ticket_projects: []
-  # Ticket links in a description must point here.
-  ticket_url: 'https://ledgerlink.atlassian.net/browse/'
-  # The sections templates/pull_request_template.md has; aliases accept the
-  # headings of the developer rules template (docs/RULES.md).
-  description_sections:
-    - name: Summary
-    - name: Ticket
-      aliases: ['Linked ticket']
-    - name: Changes
-    - name: Testing
-      aliases: ['How it was tested']
-    - name: Security Impact
-    - name: Checklist
-      aliases: ['Security checklist']
-      checklist: true
-  # Per repository: any of title_pattern, title_example, ticket_projects,
-  # ticket_url, description_sections. Changes need code-owner review.
-  #   repos:
-  #     link_core:
-  #       ticket_projects: [LCORE]
-  repos: {}
-
-# Ticket-based branch names and commit messages (AIQC-87, GitHub issue 10).
-# A branch is named <type>/<TICKET-123>-<short-description>, e.g.
-# feature/LCORE-1234-user-authentication. The ticket key and type come from the
-# branch, never from the message: the prepare-commit-msg hook writes them into
-# the subject ("feat(LCORE-1234): "), branch.ticket refuses a commit on a branch
-# without a valid key (pre-commit), commit.message checks the subject carries
-# the branch's key (commit-msg), and pr.branch-name and pr.commit-messages check
-# the same on the pull request. Accepted ticket projects: pr.ticket_projects.
-conventions:
-  # A ticket key, without anchors or capturing groups. Jira: PROJECT-123. For
-  # another ticket system, change the pattern (e.g. 'GH-\d+').
-  ticket_pattern: '[A-Z][A-Z0-9]+-\d+'
-  # Branch type (before the first "/") -> the commit type it pre-fills.
-  branch_types:
-    feature: feat
-    feat: feat
-    bugfix: fix
-    fix: fix
-    hotfix: hotfix
-    chore: chore
-    docs: docs
-    refactor: refactor
-    test: test
-    ci: ci
-    perf: perf
-    build: build
-  # Types a commit subject may use; a developer may pick another than the
-  # branch's, e.g. "fix: ..." on a feature branch becomes "fix(LCORE-1234): ...".
-  commit_types: [feat, fix, hotfix, chore, docs, refactor, test, ci, perf, build, style, revert]
-  # The subject prefix: {type} and {ticket} are filled in from the branch.
-  # "{ticket}: " gives the older "LCORE-1234: <description>" form.
-  commit_template: '{type}({ticket}): '
-  # Branches that need no ticket key (globs), e.g. ['release/*'].
-  exempt_branches: []
-  # Per repository: any of the above. Changes need code-owner review.
-  #   repos:
-  #     link_core:
-  #       commit_template: '{ticket}: '
-  repos: {}
 
 # Time limits. A scanner that runs past its limit is stopped: locally the
 # check is deferred to CI with a notice; in CI it is an engine error (exit 2),
@@ -160,26 +93,17 @@ checks:
   ai-config.mcp-allowlist:
     mode: report
     block_from: 2026-11-30
-  # The Assisted-by trailer (AI Code Review implementation v2, section 2):
-  # nothing about it blocks locally. The pull request's pr-rules job checks the
-  # trailer and is what blocks.
+  # Commit messages (AI Code Review implementation v2, section 2; Development
+  # Guideline Policy): no subject format is enforced, and nothing about the
+  # message blocks locally. The pull request's pr-rules job checks the
+  # Assisted-by trailer and is what blocks.
   commit.trailer:
-    mode: report
-  # Ticket-based branch names and commit messages (AIQC-87): report first, like
-  # every new check; set block_from once agreed with LedgerLink. In block mode a
-  # commit on a branch without a valid ticket key, or with a subject off the
-  # convention, is refused.
-  branch.ticket:
-    mode: report
-  commit.message:
-    mode: report
-  pr.commit-messages:
     mode: report
   sast.semgrep:
     mode: report
     block_from: 2026-11-16 # sast blocks from week 4
   # Pull request checks before a pull request is opened ("qa prepr"). They
-  # report only: the branch follows `conventions` (report first); the trailer is
+  # report only: the ticket key is recommended, not required; the trailer is
   # blocked by the pull request's pr-rules job; a coverage threshold would
   # block repositories whose coverage does not exist yet.
   pr.branch-name:
@@ -189,14 +113,6 @@ checks:
   pr.diff-size:
     mode: report
   tests.coverage:
-    mode: report
-  # Pull request title, ticket and description (AIQC-86): report first; the
-  # blocking date is agreed with LedgerLink.
-  pr.title:
-    mode: report
-  pr.ticket:
-    mode: report
-  pr.description:
     mode: report
   paths.protected:
     mode: report

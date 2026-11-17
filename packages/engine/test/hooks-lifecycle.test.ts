@@ -19,7 +19,6 @@ function installHooks(dir: string): void {
   const hooks: Record<string, string> = {
     'pre-commit': `"${node}" "${bin}" precommit --quiet`,
     'prepare-commit-msg': `"${node}" "${bin}" prepare-commit-msg "$1" "$2"`,
-    'commit-msg': `"${node}" "${bin}" commit-msg --quiet "$1"`,
     'pre-push': `"${node}" "${bin}" prepush --quiet`,
   };
   mkdirSync(join(dir, '.git', 'hooks'), { recursive: true });
@@ -55,12 +54,12 @@ describeBuilt('git hook lifecycle', () => {
     expect(res.status).toBe(0);
   });
 
-  it('prepare-commit-msg: the type and ticket key from the branch are added to the message', () => {
-    expect(git('checkout', '-q', '-b', 'feature/LCORE-212-bounded-retry').status).toBe(0);
+  it('prepare-commit-msg: the ticket key from the branch is added to the message', () => {
+    expect(git('checkout', '-q', '-b', 'LCORE-212-bounded-retry').status).toBe(0);
     writeFileSync(join(repo.dir, 'more.md'), 'more\n');
     git('add', '.');
     expect(git('commit', '-q', '-m', 'Add bounded retry').status).toBe(0);
-    expect(git('log', '-1', '--format=%s').stdout.trim()).toBe('feat(LCORE-212): Add bounded retry');
+    expect(git('log', '-1', '--format=%s').stdout.trim()).toBe('LCORE-212: Add bounded retry');
   });
 
   it('pre-commit: a blocking finding stops the commit and says why', () => {
@@ -69,7 +68,7 @@ describeBuilt('git hook lifecycle', () => {
     const res = git('commit', '-m', 'Add agent instructions');
     expect(res.status).not.toBe(0);
     expect(`${res.stdout}${res.stderr}`).toMatch(/BLOCK +ai-config\.content-lint +AGENTS\.md/);
-    expect(git('log', '-1', '--format=%s').stdout.trim()).toBe('feat(LCORE-212): Add bounded retry');
+    expect(git('log', '-1', '--format=%s').stdout.trim()).toBe('LCORE-212: Add bounded retry');
   });
 
   it('--no-verify skips the local hook (documented limitation; the pull request gate runs it again)', () => {
