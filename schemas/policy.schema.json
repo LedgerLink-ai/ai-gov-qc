@@ -32,7 +32,27 @@
         "diff_warn_lines": { "type": "integer", "minimum": 1 },
         "diff_max_lines": { "type": "integer", "minimum": 1 },
         "diff_ignore": { "type": "array", "items": { "type": "string", "minLength": 1 } },
-        "coverage_min_lines": { "type": "number", "minimum": 0, "maximum": 100 }
+        "coverage_min_lines": { "type": "number", "minimum": 0, "maximum": 100 },
+        "title_pattern": { "type": "string", "minLength": 1 },
+        "title_example": { "type": "string", "minLength": 1 },
+        "ticket_projects": { "$ref": "#/definitions/ticketProjects" },
+        "ticket_url": { "$ref": "#/definitions/ticketUrl" },
+        "description_sections": { "$ref": "#/definitions/prSections" },
+        "repos": {
+          "type": "object",
+          "description": "Pull request conventions for single repositories, by repository name",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "title_pattern": { "type": "string", "minLength": 1 },
+              "title_example": { "type": "string", "minLength": 1 },
+              "ticket_projects": { "$ref": "#/definitions/ticketProjects" },
+              "ticket_url": { "$ref": "#/definitions/ticketUrl" },
+              "description_sections": { "$ref": "#/definitions/prSections" }
+            }
+          }
+        }
       }
     },
     "tools": {
@@ -82,6 +102,26 @@
     }
   },
   "definitions": {
-    "mode": { "enum": ["off", "report", "block"] }
+    "mode": { "enum": ["off", "report", "block"] },
+    "ticketProjects": {
+      "type": "array",
+      "description": "Jira project keys a ticket reference may use; empty accepts any key",
+      "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9]+$" }
+    },
+    "ticketUrl": { "type": "string", "pattern": "^https://[^ ]+/$" },
+    "prSections": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "aliases": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "checklist": { "type": "boolean" }
+        }
+      }
+    }
   }
 }

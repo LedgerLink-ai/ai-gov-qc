@@ -1,0 +1,37 @@
+id: F14
+title: A pull request that follows the title, ticket and template conventions passes; SHA-256 is not a ticket (AIQC-86)
+repo: link_core
+actor: human
+as_of: 2027-01-08
+pr_title: 'LCORE-212: Add idempotency key to refund endpoint'
+pr_body: |
+  ## Summary
+
+  Adds an idempotency key to POST /refunds, hashed with SHA-256, so a retried
+  request cannot issue the same refund twice.
+
+  ## Ticket
+
+  https://ledgerlink.atlassian.net/browse/LCORE-212
+
+  ## Changes
+
+  - Idempotency key column and unique index
+
+  ## Testing
+
+  - Unit and integration tests for a retried refund
+
+  ## Security Impact
+
+  None.
+
+  ## Checklist
+
+  - [x] Coding conventions followed
+  - [x] Tests added or updated
+  - [x] Documentation updated
+  - [x] No secrets committed
+  - [x] QA checks passed
+exact: true
+expect: []
