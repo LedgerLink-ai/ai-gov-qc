@@ -1,7 +1,15 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, join, relative, sep } from 'node:path';
-import type { ChangedFile, CoverageSummary, DiffStat, FileSource, PrCommit } from './types';
+import { DEFAULT_GIT_TIMEOUT_MS, scrubbedEnv } from './exec';
+import {
+  InputError,
+  type ChangedFile,
+  type CoverageSummary,
+  type DiffStat,
+  type FileSource,
+  type PrCommit,
+} from './types';
 
 const MAX_TEXT_BYTES = 2 * 1024 * 1024;
 
@@ -13,8 +21,45 @@ function decodeText(buf: Buffer): string | undefined {
   return buf.toString('utf8');
 }
 
+let gitTimeoutMs = DEFAULT_GIT_TIMEOUT_MS;
+
+/** Time limit for every git command the engine runs (policy.yaml timeouts.git_ms, QA_GIT_TIMEOUT_MS). */
+export function setGitTimeout(ms: number): void {
+  gitTimeoutMs = ms;
+}
+
+// git reads no credentials for local commands; it never prompts either.
+const gitEnv = (): NodeJS.ProcessEnv => ({ ...scrubbedEnv(), GIT_TERMINAL_PROMPT: '0' });
+
 function git(cwd: string, args: string[]): Buffer {
-  return execFileSync('git', args, { cwd, maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
+  return execFileSync('git', args, {
+    cwd,
+    maxBuffer: 64 * 1024 * 1024,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: gitTimeoutMs,
+    killSignal: 'SIGKILL',
+    env: gitEnv(),
+    windowsHide: true,
+  });
+}
+
+// A revision as git accepts it from a user: branch, tag, remote branch, sha,
+// HEAD~2, origin/main, @{upstream}. Never something git would read as an
+// option ("--output=...") or that carries whitespace or control characters.
+const REF = /^(?!-)[A-Za-z0-9._/@{}^~+-]{1,255}$/;
+
+/** `ref`, or an InputError when it is not a plain git revision. */
+export function assertRef(ref: string, what = 'git revision'): string {
+  if (!REF.test(ref) || ref.includes('..') || ref.includes('@{-'))
+    throw new InputError(`${what} "${ref.slice(0, 80)}" is not a plain git revision (branch, tag or commit)`);
+  return ref;
+}
+
+/** A repository-relative path git listed, or an InputError for one that could escape the repository. */
+function assertRepoPath(path: string): string {
+  if (path.startsWith('-') || path.startsWith('/') || /(^|\/)\.\.(\/|$)/.test(path) || path.includes('\0'))
+    throw new InputError(`refusing the unexpected path "${path.slice(0, 80)}"`);
+  return path;
 }
 
 function gitText(cwd: string, args: string[]): string {
@@ -70,16 +115,20 @@ export function gitStagedFiles(root: string): ChangedFile[] {
 
 /** Files changed between the merge base of `base` and HEAD (what a PR contains). */
 export function gitRangeFiles(root: string, base: string): ChangedFile[] {
+  assertRef(base, 'base');
   return parseNameStatus(git(root, ['diff', '--name-status', '-z', '-M', `${base}...HEAD`]));
 }
 
 /** Files changed between two commits (what a push sends). */
 export function gitDiffFiles(root: string, from: string, to: string): ChangedFile[] {
+  assertRef(from);
+  assertRef(to);
   return parseNameStatus(git(root, ['diff', '--name-status', '-z', '-M', from, to]));
 }
 
 /** Every file in a commit, as additions (a push with no remote ancestor). */
 export function gitTreeFiles(root: string, ref: string): ChangedFile[] {
+  assertRef(ref);
   return git(root, ['ls-tree', '-r', '-z', '--name-only', ref])
     .toString('utf8')
     .split('\0')
@@ -89,12 +138,13 @@ export function gitTreeFiles(root: string, ref: string): ChangedFile[] {
 
 /** Reads files as committed in `ref`, so pre-push checks what is pushed, not the work tree. */
 export function commitSource(root: string, ref: string): FileSource {
+  assertRef(ref);
   return {
     kind: 'commit',
     root,
     read(path) {
       try {
-        return decodeText(git(root, ['show', `${ref}:${path}`]));
+        return decodeText(git(root, ['show', `${ref}:${assertRepoPath(path)}`]));
       } catch {
         return undefined;
       }
@@ -109,7 +159,7 @@ export function indexSource(root: string): FileSource {
     root,
     read(path) {
       try {
-        return decodeText(git(root, ['show', `:${path}`]));
+        return decodeText(git(root, ['show', `:${assertRepoPath(path)}`]));
       } catch {
         return undefined;
       }
@@ -146,6 +196,7 @@ export function listFiles(root: string, skip: string[] = ['.git', 'node_modules'
 
 /** Commits a pull request from HEAD would contain (merges excluded), oldest first. */
 export function gitRangeCommits(root: string, base: string): PrCommit[] {
+  assertRef(base, 'base');
   return git(root, ['log', '--no-merges', '--reverse', '--format=%H%x00%B%x1e', `${base}..HEAD`])
     .toString('utf8')
     .split('\x1e')
@@ -159,6 +210,7 @@ export function gitRangeCommits(root: string, base: string): PrCommit[] {
 
 /** Lines added and deleted per file since the merge base with `base`. */
 export function gitRangeDiffStat(root: string, base: string): DiffStat[] {
+  assertRef(base, 'base');
   const parts = git(root, ['diff', '--numstat', '-z', '-M', `${base}...HEAD`])
     .toString('utf8')
     .split('\0');
@@ -204,6 +256,29 @@ export function defaultBase(root: string): string | undefined {
     // origin/HEAD is not set
   }
   return ['origin/main', 'origin/master', 'origin/develop', 'main', 'master'].find((r) => refExists(root, r));
+}
+
+/**
+ * A file as committed in `ref`, or undefined when it does not exist there.
+ * Used to read the baseline from the pull request's base, not its head.
+ */
+export function readAtRef(root: string, ref: string, path: string): string | undefined {
+  assertRef(ref);
+  try {
+    return git(root, ['show', `${ref}:${assertRepoPath(path)}`]).toString('utf8');
+  } catch {
+    return undefined;
+  }
+}
+
+/** The merge base of `base` and HEAD, or undefined. */
+export function gitMergeBase(root: string, base: string): string | undefined {
+  assertRef(base, 'base');
+  try {
+    return gitText(root, ['merge-base', base, 'HEAD']) || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Line coverage from an Istanbul json-summary file, or undefined when it cannot be read. */

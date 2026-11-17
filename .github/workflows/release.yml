@@ -35,6 +35,8 @@ jobs:
     permissions:
       contents: write # create the tag and the release
       actions: read # download the package from the ci run
+      id-token: write # sign the build provenance attestation (Sigstore, keyless)
+      attestations: write # store the attestation with the repository
     env:
       HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
@@ -60,20 +62,44 @@ jobs:
           path: out
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ github.token }}
+      - name: check the package from ci
+        if: steps.version.outputs.release == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          cd out
+          sha256sum -c "ledgerlink-qa-$VERSION.tgz.sha256"
+      # Build provenance: a signed statement that this exact file was built by
+      # this repository's workflows from HEAD_SHA. Installers and the qa-pr
+      # workflow verify it with "gh attestation verify".
+      - name: attest build provenance
+        if: steps.version.outputs.release == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: out/ledgerlink-qa-${{ steps.version.outputs.version }}.tgz
       - name: create the release
         if: steps.version.outputs.release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
+          node scripts/release.js --notes "$VERSION" > out/changes.md
           cd out
-          sha256sum -c "ledgerlink-qa-$VERSION.tgz.sha256"
           SHA256=$(cut -c1-64 "ledgerlink-qa-$VERSION.tgz.sha256")
           URL="https://github.com/$GITHUB_REPOSITORY/releases/download/v$VERSION/ledgerlink-qa-$VERSION.tgz"
-          printf '%s\n' \
-            "## Install (Windows, macOS or Linux; Node 20+, git, Python 3.9 to 3.14)" "" \
-            '```bash' "npm install -g $URL" "qa setup" '```' "" \
-            "SHA-256 of \`ledgerlink-qa-$VERSION.tgz\`: \`$SHA256\`" > notes.md
+          {
+            cat changes.md
+            printf '%s\n' "" \
+              "## Install (Windows, macOS or Linux; Node 20+, git, Python 3.11 to 3.14)" "" \
+              '```bash' \
+              "gh release download v$VERSION --repo $GITHUB_REPOSITORY --pattern 'ledgerlink-qa-$VERSION.tgz*'" \
+              "sha256sum -c ledgerlink-qa-$VERSION.tgz.sha256" \
+              "gh attestation verify ledgerlink-qa-$VERSION.tgz --repo $GITHUB_REPOSITORY" \
+              "npm install -g --ignore-scripts ./ledgerlink-qa-$VERSION.tgz" \
+              "qa setup" '```' "" \
+              "SHA-256 of \`ledgerlink-qa-$VERSION.tgz\`: \`$SHA256\`" \
+              "" "Rollback: install the previous release the same way and set \`qa --require\` and \`qa-version\` back (docs/OPERATIONS.md)."
+          } > notes.md
           gh release create "v$VERSION" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$HEAD_SHA" \
