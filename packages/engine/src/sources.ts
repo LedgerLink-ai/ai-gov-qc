@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { basename, join, relative, sep } from 'node:path';
+import { basename, join, relative, resolve, sep } from 'node:path';
 import { DEFAULT_GIT_TIMEOUT_MS, scrubbedEnv } from './exec';
 import {
   InputError,
@@ -232,6 +232,26 @@ export function gitBranch(root: string): string {
   } catch {
     return 'HEAD';
   }
+}
+
+/**
+ * The branch being committed to: as gitBranch, and during a rebase (HEAD is
+ * detached then) the branch being rebased, from the rebase's head-name file.
+ * "HEAD" when there is none.
+ */
+export function gitCurrentBranch(root: string): string {
+  const branch = gitBranch(root);
+  if (branch !== 'HEAD') return branch;
+  for (const dir of ['rebase-merge', 'rebase-apply']) {
+    try {
+      const file = gitText(root, ['rev-parse', '--git-path', `${dir}/head-name`]);
+      const name = readFileSync(resolve(root, file), 'utf8').trim();
+      if (name.startsWith('refs/heads/')) return name.slice('refs/heads/'.length);
+    } catch {
+      // not rebasing this way
+    }
+  }
+  return 'HEAD';
 }
 
 const refExists = (root: string, ref: string): boolean => {
