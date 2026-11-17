@@ -27,7 +27,6 @@ import {
   writeOutputs,
   BASELINE_FILE,
 } from './report';
-import { conventionsFor } from './conventions';
 import { run, type RunOptions } from './runner';
 import {
   assertRef,
@@ -35,7 +34,6 @@ import {
   defaultBase,
   directorySource,
   gitBranch,
-  gitCurrentBranch,
   gitDiffFiles,
   gitHeadSha,
   gitRangeCommits,
@@ -74,14 +72,11 @@ const USAGE = `qa ${ENGINE_VERSION} - LedgerLink QA check engine
 
 Usage:
   qa check      [selection] [options]   Run the checks on a set of changed files
-  qa precommit  [options]               Stage 0-1 checks on the staged changes and the branch name (the pre-commit
-                                        hook): a commit needs a branch named <type>/<TICKET-123>-<description>
+  qa precommit  [options]               Stage 0-1 checks on the staged changes (the pre-commit hook)
   qa prepare-commit-msg <file> [<source>]
-                                        Pre-fill the message (the prepare-commit-msg hook): "<type>(<TICKET-123>): "
-                                        from the branch name, the Assisted-by default, AI Co-authored-by lines
+                                        Pre-fill the message (the prepare-commit-msg hook): the ticket key from
+                                        the branch name, the Assisted-by default, AI Co-authored-by lines
                                         converted to Assisted-by. Never rejects a commit
-  qa commit-msg <file> [options]        Check the commit message (the commit-msg hook): the subject follows the
-                                        convention and names the branch's ticket; the Assisted-by form
   qa prepush    [options]               Stage 2 checks (fast Semgrep) on the commits being pushed (the pre-push hook)
   qa prepr      [--base <ref>] [--coverage <files>] [--pr-title <t> --pr-body-file <f>] [options]
                                         Stage 0-3 checks on everything the pull request contains, plus its
@@ -90,7 +85,7 @@ Usage:
   qa setup      [setup options]         Install pre-commit, Semgrep and Gitleaks at the pinned versions and connect
                                         the hooks for every repository on this machine, on Windows, macOS or Linux
                                         (once per machine; no file is copied into any repository)
-  qa hook       <hook> [args...]        Run one git hook (pre-commit, prepare-commit-msg, commit-msg, pre-push): the hooks
+  qa hook       <hook> [args...]        Run one git hook (pre-commit, prepare-commit-msg, pre-push): what the hooks
                                         "qa setup" installs call. Runs the repository's own .git/hooks copy, then,
                                         in an opted-in repository, the checks from its .pre-commit-config.yaml, else
                                         from the default configuration that ships with qa
@@ -123,8 +118,6 @@ Options:
   --mode <mode>         local | ci  (default: ci when $CI is set, else local)
   --as-of <date>        Evaluate switch-on dates as of YYYY-MM-DD (default: $QA_AS_OF, else today)
   --commit-msg-file <f> Also run commit-message checks on this message
-  --branch <name>       The branch being committed to, for the branch and commit message checks
-                        (qa precommit and qa commit-msg: the current branch)
   --coverage <files>    qa prepr: comma-separated Istanbul json-summary files from the test run
                         (default: coverage/coverage-summary.json and */coverage/coverage-summary.json)
   --pr-title <title>    Also run the pull request title and ticket checks on this title
@@ -158,7 +151,7 @@ Setup options:
   --gitleaks-archive <f>  Install Gitleaks from this downloaded release archive (no network)
   --download-base <url> Download Gitleaks from this mirror: <url>/v<version>/<asset>
 
-Execution gate: check, precommit, prepare-commit-msg, commit-msg, prepush, prepr, baseline, repo-tool and repo-script do
+Execution gate: check, precommit, prepare-commit-msg, prepush, prepr, baseline, repo-tool and repo-script do
 nothing (exit 0, no output) unless the repository's origin remote is owned by the organisation and the repository
 is enabled in registry/repositories.yaml. In CI, an identity that cannot be verified is an error (exit 2), and
 so is configuration from --config or QA_CONFIG_DIR. "qa doctor" shows whether QA is enabled for the current
@@ -197,7 +190,6 @@ const VALUE_FLAGS = new Set([
   'mode',
   'as-of',
   'commit-msg-file',
-  'branch',
   'format',
   'out',
   'config',
@@ -459,7 +451,6 @@ function runOptions(flags: Flags, sel: Selection, extra: Partial<RunOptions> = {
     changedFiles: sel.files,
     source: sel.source,
     commitMessage: msgFile ? readFileSync(msgFile, 'utf8') : undefined,
-    branch: str(flags, 'branch'),
     prText: prTextFrom(flags, false),
     baseline: baselineFor(sel, mode),
     exclude: str(flags, 'exclude')
@@ -517,34 +508,6 @@ async function runAndReport(opts: RunOptions, flags: Flags): Promise<number> {
 
 async function check(flags: Flags, defaultSelection?: 'staged', extra: Partial<RunOptions> = {}): Promise<number> {
   return runAndReport(runOptions(flags, select(flags, defaultSelection), extra), flags);
-}
-
-/** The branch being committed to: --branch, else the current branch (the one being rebased, during a rebase). */
-const branchOf = (flags: Flags, root: string): string => str(flags, 'branch') ?? gitCurrentBranch(root);
-
-/** The pre-commit hook: stage 0-1 checks on the staged changes, and the branch name. */
-async function precommit(flags: Flags): Promise<number> {
-  const sel = select(flags, 'staged');
-  return runAndReport(runOptions(flags, sel, { stages: [0, 1], branch: branchOf(flags, sel.root) }), flags);
-}
-
-/**
- * The commit-msg hook: the message checks (scope commit) on the message git
- * is about to store, against the current branch. Merges, fixups and reverts
- * are left to git.
- */
-async function commitMsg(positionals: string[], flags: Flags): Promise<number> {
-  const [file] = positionals;
-  if (!file) throw new UsageError('qa commit-msg needs the commit message file');
-  if (!existsSync(file)) throw new UsageError(`qa commit-msg: ${file} does not exist`);
-  const root = rootOf(flags);
-  const sel: Selection = { root, inGit: true, files: [], source: indexSource(root) };
-  const opts = runOptions({ ...flags, 'commit-msg-file': file }, sel, {
-    stages: [0, 1],
-    scopes: ['commit'],
-    branch: branchOf(flags, root),
-  });
-  return runAndReport(opts, flags);
 }
 
 async function prepush(flags: Flags): Promise<number> {
@@ -649,27 +612,18 @@ function prepareCommitMsg(positionals: string[], flags: Flags): number {
   try {
     const root = rootOf(flags);
     let registry;
-    let conventions;
     try {
-      const config = loadConfig(str(flags, 'config'));
-      registry = config.registry;
-      conventions = conventionsFor(config.policy, str(flags, 'repo') ?? gitRepoName(root));
+      registry = loadConfig(str(flags, 'config')).registry;
     } catch {
-      // the ticket key (default conventions) and the Assisted-by default still work without the configuration
-      registry = undefined;
-      conventions = undefined;
+      registry = undefined; // the ticket key and the default still work without the registry
     }
     const message = readFileSync(file, 'utf8');
     const result = prepareMessage({
       message,
       source: sourceArg ?? process.env.PRE_COMMIT_COMMIT_MSG_SOURCE ?? '',
-      // Not the branch being rebased: a rebase replays every commit through this
-      // hook, and its subjects (a teammate's too) must not be rewritten on the way.
-      // HEAD is detached then, which leaves the message as it is.
-      branch: str(flags, 'branch') ?? gitBranch(root),
+      branch: gitBranch(root),
       assistedBy: assistedByDefault(root),
       registry,
-      conventions,
     });
     if (result.message !== message) writeFileSync(file, result.message);
     for (const note of result.notes) print(`qa: ${note}`);
@@ -736,7 +690,7 @@ function commandVersion(cmd: string, args: string[]): string | undefined {
   return !res.error && res.status === 0 ? versionIn(`${res.stdout} ${res.stderr}`) : undefined;
 }
 
-const HOOK_TYPES = ['pre-commit', 'prepare-commit-msg', 'commit-msg', 'pre-push'] as const;
+const HOOK_TYPES = ['pre-commit', 'prepare-commit-msg', 'pre-push'] as const;
 
 const HUSKY_PATH = /(^|[\\/])\.husky([\\/]_)?[\\/]?$/;
 
@@ -790,11 +744,7 @@ function doctor(flags: Flags): number {
   const globalHooks = globalPath !== '' && sameDir(globalPath, hooksDir) && hookScriptsInstalled(hooksDir);
   if (globalHooks) row('ok', 'global hooks', `${hooksDir} connects the hooks in every repository`);
   else if (globalPath && sameDir(globalPath, hooksDir))
-    row(
-      'FAIL',
-      'global hooks',
-      `core.hooksPath is ${globalPath}, but qa's scripts there are missing or from an older qa; run "qa setup"`,
-    );
+    row('FAIL', 'global hooks', `core.hooksPath is ${globalPath}, but qa's scripts are not there; run "qa setup"`);
   else if (globalPath)
     row(
       'WARN',
@@ -1113,7 +1063,7 @@ export function satisfies(installed: string, required: string): boolean {
 }
 
 /** Commands that act on the repository they run in; the rest are diagnostics or work on this package. */
-const GATED = new Set(['check', 'precommit', 'prepare-commit-msg', 'commit-msg', 'prepush', 'prepr', 'baseline']);
+const GATED = new Set(['check', 'precommit', 'prepare-commit-msg', 'prepush', 'prepr', 'baseline']);
 
 /**
  * The execution gate (issue #8). Returns an exit code when the command must
@@ -1243,11 +1193,9 @@ export async function main(argv: string[]): Promise<number> {
       case 'check':
         return await check(flags);
       case 'precommit':
-        return await precommit(flags);
+        return await check(flags, 'staged', { stages: [0, 1] });
       case 'prepare-commit-msg':
         return prepareCommitMsg(positionals, flags);
-      case 'commit-msg':
-        return await commitMsg(positionals, flags);
       case 'prepush':
         return await prepush(flags);
       case 'prepr':

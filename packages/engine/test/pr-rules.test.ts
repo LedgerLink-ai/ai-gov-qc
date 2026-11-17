@@ -7,11 +7,11 @@ import { gitBranch, gitRangeCommits, gitRangeDiffStat } from '../src/sources';
 import type { PrInfo } from '../src/types';
 import { options } from './helpers';
 
-const GOOD = 'feat(LD-480): add refund key\n\nAssisted-by: Cursor, gpt-5, 1.7.0\n';
+const GOOD = 'LD-480: Add refund key\n\nAssisted-by: Cursor, gpt-5, 1.7.0\n';
 
 const pr = (overrides: Partial<PrInfo> = {}): PrInfo => ({
   base: 'origin/develop',
-  branch: 'feature/LD-480-refund-key',
+  branch: 'LD-480-refund-key',
   commits: [{ sha: 'a'.repeat(40), message: GOOD }],
   diff: [{ path: 'src/refund.ts', added: 20, deleted: 5, binary: false }],
   coverage: [],
@@ -26,14 +26,7 @@ async function prFindings(info: PrInfo) {
 describe('pull request checks (stage 3)', () => {
   it('pass a well-formed pull request', async () => {
     expect(await prFindings(pr())).toEqual([]);
-    expect(
-      await prFindings(
-        pr({
-          branch: 'bugfix/LCORE-210-limit-invariants',
-          commits: [{ sha: 'b'.repeat(40), message: 'fix(LCORE-210): cap the limit\n' }],
-        }),
-      ),
-    ).toEqual([]);
+    expect(await prFindings(pr({ branch: 'feature/LCORE-210-limit-invariants' }))).toEqual([]);
   });
 
   it('are skipped outside a pre-PR run', async () => {
@@ -43,13 +36,9 @@ describe('pull request checks (stage 3)', () => {
     expect(runs.every((r) => r.status === 'skipped' && /qa prepr/.test(r.reason ?? ''))).toBe(true);
   });
 
-  it('report, without blocking, a branch off the ticket convention or the base branch itself', async () => {
+  it('report, without blocking, a branch with no ticket key or the base branch itself', async () => {
     expect(await prFindings(pr({ branch: 'chore/precommit-local-checks' }))).toEqual([
-      ['pr.branch-name', 'no-ticket', false],
-    ]);
-    expect(await prFindings(pr({ branch: 'LD-480-refund-key' }))).toEqual([['pr.branch-name', 'format', false]]);
-    expect(await prFindings(pr({ branch: 'feature/ld-480-refund-key' }))).toEqual([
-      ['pr.branch-name', 'malformed-ticket', false],
+      ['pr.branch-name', 'no-ticket-key', false],
     ]);
     expect(await prFindings(pr({ branch: 'develop' }))).toEqual([['pr.branch-name', 'base-branch', false]]);
   });
