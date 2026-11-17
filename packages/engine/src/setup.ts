@@ -51,7 +51,7 @@ export interface SetupOptions {
 }
 
 const GITLEAKS_RELEASES = 'https://github.com/gitleaks/gitleaks/releases/download';
-const HOOK_TYPES = ['pre-commit', 'prepare-commit-msg', 'commit-msg', 'pre-push'];
+const HOOK_TYPES = ['pre-commit', 'prepare-commit-msg', 'pre-push'];
 
 type Row = (status: 'ok' | 'WARN' | 'FAIL', name: string, detail: string) => void;
 
@@ -349,8 +349,8 @@ function setupGitTemplate(row: Row): boolean {
     };
     if (HOOK_TYPES.every(byPreCommit)) row('ok', 'git template', `${current.out} (already set up)`);
     else if (byPreCommit('pre-commit')) {
-      // A template pre-commit made earlier, with an older hook list (without
-      // prepare-commit-msg or commit-msg): bring it up to date.
+      // A template pre-commit made earlier, with an older hook list (commit-msg
+      // before prepare-commit-msg): bring it up to date.
       const init = run(preCommit, ['init-templatedir', ...HOOK_TYPES.flatMap((h) => ['-t', h]), dir]);
       row(
         init.ok ? 'ok' : 'FAIL',
@@ -361,7 +361,7 @@ function setupGitTemplate(row: Row): boolean {
       row(
         'WARN',
         'git template',
-        `init.templateDir is already ${current.out}; left as it is. To use it: pre-commit init-templatedir -t pre-commit -t prepare-commit-msg -t commit-msg -t pre-push "${current.out}"`,
+        `init.templateDir is already ${current.out}; left as it is. To use it: pre-commit init-templatedir -t pre-commit -t prepare-commit-msg -t pre-push "${current.out}"`,
       );
     return true;
   }

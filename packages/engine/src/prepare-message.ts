@@ -1,31 +1,18 @@
 import { findTool, parseTrailerValue, toolForAlias, TRAILER, TRAILER_FORM } from './checks/commit-trailer';
-import {
-  analyseBranch,
-  DEFAULT_CONVENTIONS,
-  parseSubject,
-  subjectPrefix,
-  templateHasType,
-  type Conventions,
-} from './conventions';
 import type { AiRegistry } from './types';
 
 // The prepare-commit-msg hook (Development Guideline Policy, "Local hooks";
-// AI Code Review implementation, section 2; AIQC-87). It pre-fills the
-// message and never rejects anything; the pre-commit and commit-msg hooks and
-// the pull request check it.
+// AI Code Review implementation, section 2). It pre-fills the message and
+// never rejects anything; the pull request checks the Assisted-by trailer.
 //
-//   - the subject prefix from the branch name (conventions.ts):
-//     feature/LCORE-210-limit-invariants gives "feat(LCORE-210): ", so the
-//     ticket key is never typed twice. A subject that already follows the
-//     convention is left alone; "fix: x" gains the key ("fix(LCORE-210): x");
-//     "LCORE-210: x" gains the type
+//   - the ticket key from the branch name (LCORE-210-limit-invariants gives
+//     "LCORE-210: "), unless the subject already starts with a key
 //   - the developer's Assisted-by default (git config ledgerlink.assistedBy),
 //     unless the message already has the trailer; "none" means no AI tools
-//   - Co-authored-by trailers added by AI tools become Assisted-by
 //
-// When it adds nothing it says why (the branch has no valid ticket key, no
-// default set), so a message left as it was is not mistaken for a hook that
-// did not run.
+// When it adds nothing it says why (no key in the branch, no default set),
+// so a message left as it was is not mistaken for a hook that did not run.
+//   - Co-authored-by trailers added by AI tools become Assisted-by
 //
 // Messages git writes itself are left alone: merges, squashes, amends and
 // -c/-C reuse (the hook's source argument), and fixup!/squash!/amend! and
@@ -39,8 +26,6 @@ export interface PrepareInput {
   /** The developer's default, "<tool>, <model>, <version>". */
   assistedBy?: string;
   registry?: AiRegistry;
-  /** The repository's branch and commit conventions; the defaults when absent. */
-  conventions?: Conventions;
 }
 
 export interface PrepareResult {
@@ -53,22 +38,17 @@ const LEAVE_SOURCES = new Set(['merge', 'squash', 'commit']);
 /** The ledgerlink.assistedBy value for developers who do not use AI tools. */
 export const NO_DEFAULT = 'none';
 const GIT_SUBJECT = /^(?:(?:fixup|squash|amend)! |Revert ")/;
+const KEY_IN_BRANCH = /(?:^|\/)([A-Z][A-Z0-9]+-\d+)(?=$|[-_./])/;
+const KEY_AT_START = /^[A-Z][A-Z0-9]+-\d+\b/;
 const TRAILER_LINE = /^[A-Za-z][A-Za-z0-9-]*:\s/;
 const ASSISTED_LINE = /^Assisted-by:/i;
 const CO_AUTHOR_LINE = /^Co-authored-by:\s*(.*)$/i;
 const SCISSORS = /^# -+ >8 -+$/;
 
-/** The ticket key in a branch that follows the convention: feature/LCORE-210-x gives LCORE-210. */
-export function ticketFromBranch(branch: string, conv: Conventions = DEFAULT_CONVENTIONS): string | undefined {
-  const a = analyseBranch(branch, conv);
-  return a.ok ? a.ticket : undefined;
+/** The ticket key in a branch name: LCORE-210-limit-invariants and feature/LCORE-210-x give LCORE-210. */
+export function ticketFromBranch(branch: string): string | undefined {
+  return KEY_IN_BRANCH.exec(branch)?.[1];
 }
-
-/** A Conventional Commits subject without the ticket: "fix: x", "feat(api)!: x". */
-const CONVENTIONAL = /^(?<type>[a-z][a-z0-9-]*)(?:\((?<scope>[^)]*)\))?(?<bang>!)?:\s*(?<description>\S.*)$/;
-/** A subject that starts with a bare ticket key: "LCORE-210: x" or "LCORE-210 x". */
-const BARE_KEY = (conv: Conventions): RegExp =>
-  new RegExp(`^(?<ticket>${conv.ticketPattern})(?::\\s*|\\s+)(?<description>\\S.*)$`);
 
 export function prepareMessage(input: PrepareInput): PrepareResult {
   const notes: string[] = [];
@@ -111,25 +91,21 @@ export function prepareMessage(input: PrepareInput): PrepareResult {
     }
   }
 
-  // 2. The subject prefix from the branch name.
-  const conv = input.conventions ?? DEFAULT_CONVENTIONS;
-  const branch = input.branch === 'HEAD' ? undefined : analyseBranch(input.branch, conv);
-  if (branch?.ok) {
-    const prefix = subjectPrefix(conv, branch.commitType, branch.ticket);
+  // 2. The ticket key from the branch name.
+  const key = ticketFromBranch(input.branch);
+  if (key) {
     if (subjectIdx === undefined) {
-      lines.splice(0, 0, prefix);
-      notes.push(`added "${prefix}" from branch ${input.branch}`);
-    } else {
-      const subject = lines[subjectIdx].trim();
-      const next = subjectFor(subject, conv, branch.commitType, branch.ticket);
-      if (next !== undefined && next !== subject) {
-        lines[subjectIdx] = next;
-        notes.push(`added ticket ${branch.ticket} from branch ${input.branch}: "${next}"`);
-      }
+      lines.splice(0, 0, `${key}: `);
+      notes.push(`added "${key}: " from branch ${input.branch}`);
+    } else if (!KEY_AT_START.test(lines[subjectIdx].trim())) {
+      lines[subjectIdx] = `${key}: ${lines[subjectIdx].trim()}`;
+      notes.push(`added "${key}: " from branch ${input.branch}`);
     }
-  } else if (branch && !branch.ok && !branch.exempt) {
+  } else if (input.branch !== 'HEAD' && (subjectIdx === undefined || !KEY_AT_START.test(lines[subjectIdx].trim()))) {
     // Said every time, so a message left as it was is not mistaken for a hook that did not run.
-    notes.push(`no ticket key added: ${branch.message} ${branch.fixHint}`);
+    notes.push(
+      `no ticket key added: branch ${input.branch} has none (recommended: <TICKET-123>-<description>, e.g. LCORE-210-limit-invariants)`,
+    );
   }
 
   // 3. The developer's Assisted-by default, when the message has none.
@@ -164,24 +140,4 @@ function addTrailer(lines: string[], trailer: string): void {
   const block = lines.slice(first, last + 1);
   const inTrailerBlock = first > 0 && block.every((l) => TRAILER_LINE.test(l.trim()));
   lines.splice(last + 1, 0, ...(inTrailerBlock ? [trailer] : ['', trailer]));
-}
-
-/**
- * The subject with the branch's type and ticket, or undefined to leave it as
- * the developer wrote it: it already follows the convention (with any key; the
- * commit-msg hook compares that key with the branch), or it names another
- * ticket or a scope of its own, which only the developer can resolve.
- */
-function subjectFor(subject: string, conv: Conventions, type: string, ticket: string): string | undefined {
-  if (parseSubject(subject, conv)) return undefined;
-  // Only a prefix, with no description yet ("feat(LCORE-210):"): adding another would double it.
-  if (parseSubject(`${subject.trimEnd()} x`, conv)?.description === 'x') return undefined;
-  const conventional = templateHasType(conv) ? CONVENTIONAL.exec(subject)?.groups : undefined;
-  if (conventional && conv.commitTypes.includes(conventional.type)) {
-    if (conventional.scope !== undefined || conventional.bang) return undefined;
-    return `${subjectPrefix(conv, conventional.type, ticket)}${conventional.description}`;
-  }
-  const bare = BARE_KEY(conv).exec(subject)?.groups;
-  if (bare) return bare.ticket === ticket ? `${subjectPrefix(conv, type, ticket)}${bare.description}` : undefined;
-  return `${subjectPrefix(conv, type, ticket)}${subject}`;
 }
