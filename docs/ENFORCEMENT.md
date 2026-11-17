@@ -38,9 +38,7 @@ pull request into a protected branch of an opted-in repository:
    engine refuses `--config` and `QA_CONFIG_DIR`, takes the repository's
    identity from the Actions environment (only allowlisted LedgerLink-ai
    repositories run; forks never do) and reads the baseline from the base
-   branch. The pull request's title and description, from GitHub's event,
-   are checked against the conventions in
-   [PR-CONVENTIONS.md](PR-CONVENTIONS.md).
+   branch.
 4. Fails on a blocking finding (exit 1) or on any check that could not run
    (exit 2). Uploads SARIF to code scanning and keeps `evidence.json` for 90
    days; the job summary lists every check.
