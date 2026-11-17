@@ -134,6 +134,13 @@ async function runApi(
   };
 }
 
+/**
+ * Fixtures are loose folders in the temp directory, not allowlisted
+ * repositories. The execution gate honours this only for such a folder
+ * (outside any git work tree), never for a real repository.
+ */
+const CONFORMANCE_ENV = { ...process.env, QA_CONFORMANCE: '1' };
+
 function runCli(
   cliPath: string,
   config: Config,
@@ -164,11 +171,15 @@ function runCli(
     extra.push('--commit-msg-file', msgFile);
   }
   if (fixture.baseline_from_self) {
-    const b = spawnSync(process.execPath, [cliPath, 'baseline', ...common, ...extra], { encoding: 'utf8' });
+    const b = spawnSync(process.execPath, [cliPath, 'baseline', ...common, ...extra], {
+      encoding: 'utf8',
+      env: CONFORMANCE_ENV,
+    });
     if (b.status !== 0) return { observed: [], errors: [`qa baseline exited ${b.status}: ${b.stderr.trim()}`] };
   }
   const res = spawnSync(process.execPath, [cliPath, 'check', ...common, ...extra, '--format', 'json'], {
     encoding: 'utf8',
+    env: CONFORMANCE_ENV,
   });
   if (res.status === null || res.status > 2 || !res.stdout) {
     return { observed: [], errors: [`qa check exited ${res.status}: ${res.stderr.trim()}`] };
