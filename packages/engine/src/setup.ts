@@ -59,19 +59,30 @@ type Row = (status: 'ok' | 'WARN' | 'FAIL', name: string, detail: string) => voi
 const PIP_TIMEOUT_MS = 30 * 60_000;
 const COMMAND_TIMEOUT_MS = 120_000;
 
-function run(cmd: string, args: string[], show = false, timeout = COMMAND_TIMEOUT_MS): { ok: boolean; out: string } {
+/**
+ * Runs a command. `out` is redacted, for messages; `raw` is the output itself,
+ * for values qa reads and acts on (versions, git configuration paths), which
+ * redaction must not change.
+ */
+function run(
+  cmd: string,
+  args: string[],
+  show = false,
+  timeout = COMMAND_TIMEOUT_MS,
+): { ok: boolean; out: string; raw: string } {
   const res = spawnSync(cmd, args, { encoding: 'utf8', stdio: show ? 'inherit' : 'pipe', timeout, windowsHide: true });
   const timedOut = (res.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT';
   const out = `${res.stdout ?? ''}${res.stderr ?? ''}`.trim();
   return {
     ok: !res.error && res.status === 0,
     out: redact(timedOut ? `${cmd} did not finish within ${Math.round(timeout / 1000)} s. ${out}` : out),
+    raw: out,
   };
 }
 
 const versionOf = (cmd: string, args: string[]): string | undefined => {
   const r = run(cmd, args);
-  return r.ok ? versionIn(r.out) : undefined;
+  return r.ok ? versionIn(r.raw) : undefined;
 };
 
 // The Python 3 minor versions the pinned tools install on. pre-commit 4.7.0
@@ -96,13 +107,13 @@ function findPython(): { cmd: string; args: string[]; version: string; supported
   const candidates: Array<[string, string[]]> = [];
   if (isWindows) {
     const listed = run('py', ['--list']);
-    if (listed.ok) for (const v of pyLauncherVersions(listed.out)) candidates.push(['py', [v]]);
+    if (listed.ok) for (const v of pyLauncherVersions(listed.raw)) candidates.push(['py', [v]]);
     candidates.push(['python', []], ['python3', []]);
   } else candidates.push(['python3', []], ['python', []]);
   let newer: { cmd: string; args: string[]; version: string; supported: boolean } | undefined;
   for (const [cmd, args] of candidates) {
     const r = run(cmd, [...args, '-c', 'import sys; print("%d.%d.%d" % sys.version_info[:3])']);
-    const v = r.ok ? versionIn(r.out) : undefined;
+    const v = r.ok ? versionIn(r.raw) : undefined;
     if (!v) continue;
     const [major, minor] = v.split('.').map(Number);
     if (major !== 3 || minor < PYTHON_MINORS.min) continue;
@@ -330,8 +341,8 @@ async function setupGitleaks(config: Config, pin: string, opts: SetupOptions, ro
 function setupGitTemplate(row: Row): boolean {
   const current = run('git', ['config', '--global', '--get', 'init.templateDir']);
   const preCommit = toolBinary('pre-commit');
-  if (current.ok && current.out) {
-    const dir = current.out.replace(/^~(?=[\\/])/, process.env.USERPROFILE ?? process.env.HOME ?? '~');
+  if (current.ok && current.raw) {
+    const dir = current.raw.replace(/^~(?=[\\/])/, process.env.USERPROFILE ?? process.env.HOME ?? '~');
     const byPreCommit = (h: string): boolean => {
       const f = join(dir, 'hooks', h);
       return existsSync(f) && readFileSync(f, 'utf8').includes('pre-commit');
