@@ -1,6 +1,7 @@
 import type { CheckDefinition, Finding, RunContext } from '../types';
 import { commitTrailer } from './commit-trailer';
 import { contentLint } from './content-lint';
+import { branchTicket, commitMessage, prCommitMessages } from './conventions';
 import { mcpAllowlist } from './mcp-allowlist';
 import { prBranchName, prCommits, prDiffSize, testsCoverage } from './pr-rules';
 import { protectedPaths } from './protected-paths';
@@ -13,8 +14,11 @@ export const NATIVE_CHECKS: Record<string, NativeCheck> = {
   'ai-config.mcp-allowlist': mcpAllowlist,
   'paths.protected': protectedPaths,
   'commit.trailer': commitTrailer,
+  'branch.ticket': branchTicket,
+  'commit.message': commitMessage,
   'pr.branch-name': prBranchName,
   'pr.commits': prCommits,
+  'pr.commit-messages': prCommitMessages,
   'pr.diff-size': prDiffSize,
   'tests.coverage': testsCoverage,
 };

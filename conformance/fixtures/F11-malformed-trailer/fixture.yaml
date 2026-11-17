@@ -4,7 +4,7 @@ repo: link_core
 actor: human
 as_of: 2027-01-08
 commit_message: |
-  LCORE-212: Add bounded retry
+  feat(LCORE-212): add bounded retry
 
   Assisted-by: cursor/gpt-5
 exact: true

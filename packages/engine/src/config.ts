@@ -5,12 +5,14 @@ import Ajv, { type ValidateFunction } from 'ajv';
 import { parse as parseYaml } from 'yaml';
 import { NATIVE_CHECKS } from './checks';
 import { TOOL_ADAPTERS } from './adapters/tools';
+import { DEFAULT_CONVENTIONS, templateProblems } from './conventions';
 import { ENGINE_VERSION } from './version';
 import {
   ConfigError,
   type AiRegistry,
   type CheckDefinition,
   type Config,
+  type ConventionsRepoOverride,
   type Exemption,
   type PathTags,
   type RepositoryAllowlist,
@@ -164,6 +166,46 @@ export function crossValidate(config: Omit<Config, 'hashes' | 'dir'>): string[] 
     const key = r.name.toLowerCase();
     if (repoNames.has(key)) problems.push(`repositories.yaml: duplicate repository ${r.name}`);
     repoNames.add(key);
+  }
+  // Branch and commit conventions (AIQC-87): every ticket pattern compiles,
+  // without capturing groups; a template names the ticket once; every branch
+  // type maps to a commit type; per-repository overrides name allowlisted
+  // repositories.
+  const conv = config.policy.conventions;
+  const convSections: Array<[string, ConventionsRepoOverride | undefined]> = [
+    ['conventions', conv],
+    ...Object.entries(conv?.repos ?? {}).map(([name, o]): [string, ConventionsRepoOverride] => [
+      `conventions.repos.${name}`,
+      o,
+    ]),
+  ];
+  for (const [where, c] of convSections) {
+    if (!c) continue;
+    if (c.ticket_pattern !== undefined) {
+      try {
+        new RegExp(c.ticket_pattern);
+      } catch (err) {
+        problems.push(
+          `policy.yaml: ${where}.ticket_pattern is not a valid regular expression (${(err as Error).message})`,
+        );
+      }
+    }
+    if (c.ticket_pattern !== undefined && /(?<!\\)\((?!\?)|\(\?<(?![=!])/.test(c.ticket_pattern))
+      problems.push(`policy.yaml: ${where}.ticket_pattern must not contain capturing groups; use (?:...)`);
+    if (c.commit_template !== undefined)
+      for (const p of templateProblems(c.commit_template)) problems.push(`policy.yaml: ${where}.commit_template ${p}`);
+    // What applies to the section: its own lists, else the global ones, else the defaults.
+    const commitTypes = c.commit_types ?? conv?.commit_types ?? DEFAULT_CONVENTIONS.commitTypes;
+    const branchTypes = c.branch_types ?? conv?.branch_types ?? DEFAULT_CONVENTIONS.branchTypes;
+    for (const [branchType, commitType] of Object.entries(branchTypes))
+      if (!commitTypes.includes(commitType))
+        problems.push(
+          `policy.yaml: ${where}.branch_types.${branchType} is "${commitType}", which is not one of the commit_types`,
+        );
+  }
+  for (const name of Object.keys(conv?.repos ?? {})) {
+    if (!repoNames.has(name.toLowerCase()))
+      problems.push(`policy.yaml: conventions.repos.${name} is not a repository in repositories.yaml`);
   }
   const exemptionIds = new Set<string>();
   for (const [tool, pin] of Object.entries(config.policy.tools ?? {})) {
