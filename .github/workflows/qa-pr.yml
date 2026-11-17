@@ -126,7 +126,7 @@ jobs:
       - name: install the scanners (pinned, hash-checked)
         run: |
           set -euo pipefail
-          qa setup --no-git-template
+          qa setup --no-global-hooks --no-git-template
           echo "$QA_HOME/bin" >> "$GITHUB_PATH"
 
       - name: qa checks
