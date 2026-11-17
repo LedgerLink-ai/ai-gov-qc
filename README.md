@@ -4,7 +4,7 @@ LedgerLink QA harness: the governance registries and the `qa` check engine. The 
 
 Design: `LedgerLink QA Harness Technical Design` V2.2. Build order: `qa-harness-guide/IMPLEMENTATION_PLAN.md`.
 
-> **Local only.** This repository has no remote. Nothing is pushed, and no repository is created in the LedgerLink-ai organisation, until LedgerLink provides organisation-owner action (client request 1.1).
+> **Hosted for now at [bhushan-ht/ledgerlink-qa](https://github.com/bhushan-ht/ledgerlink-qa).** It moves to the LedgerLink-ai organisation once LedgerLink provides organisation-owner action (client request 1.1).
 
 ## Status (2 Nov 2026)
 
@@ -12,14 +12,15 @@ Design: `LedgerLink QA Harness Technical Design` V2.2. Build order: `qa-harness-
 
 - `.pre-commit-hooks.yaml` and `templates/pre-commit-config.yaml`
 - Gitleaks rules for blockchain private keys and BIP39 mnemonics
-- `qa prepare-commit-msg`: ticket key from the branch, Assisted-by default, AI Co-authored-by converted (no subject format enforced, since 3 Nov)
+- `qa prepare-commit-msg`: `<type>(<TICKET-123>): ` from the branch, Assisted-by default, AI Co-authored-by converted
 - the `Assisted-by: <tool>, <model>, <version>` format
 - `sast.semgrep` at pre-push
 - `qa prepush` and `qa doctor`
 - `qa prepr` with the pull request checks `pr.branch-name`, `pr.commits`, `pr.diff-size` and `tests.coverage`
+- ticket-based branch names and commit messages (AIQC-87): `branch.ticket` (pre-commit), `commit.message` (the new commit-msg hook, `qa commit-msg`) and `pr.commit-messages` require `<type>/<TICKET-123>-<description>` branches and `<type>(<TICKET-123>): <description>` subjects, the key taken from the branch; report only until a blocking date is agreed ([docs/BRANCH-AND-COMMIT-CONVENTIONS.md](docs/BRANCH-AND-COMMIT-CONVENTIONS.md))
 - the `repo-script` and `repo-tool` hooks for each repository's tests, type check and build
 - the hook sandbox
-- the `@ledgerlink/qa` package (`npm run package`), `qa setup`, `qa --require <version>`, and the `ci` and `release` workflows (not run yet)
+- the `@ledgerlink/qa` package (`npm run package`), `qa setup`, `qa --require <version>`, and the `ci` and `release` workflows (the first automatic release was v0.2.2, on 3 Nov)
 
 Tests: 69 pass. Conformance: 16 of 16 fixtures pass.
 
@@ -33,6 +34,17 @@ Tests: 69 pass. Conformance: 16 of 16 fixtures pass.
 | Check: `secrets.gitleaks`                                                                                                                                                                                           | Adapter done; not yet run here because Gitleaks is not installed (week 2) |
 | Conformance fixtures and `qa conform` (API path and CLI path)                                                                                                                                                       | 9 pass, 1 skipped (needs Gitleaks), 1 pending (BIP39 rule, week 2)        |
 | Git hooks installer, `qa commit-metadata`, MCP server, `qa init`, OKF bundle, gate                                                                                                                                  | Not started (weeks 2 to 6)                                                |
+
+## Production use (issue #15)
+
+| Topic                                              | Document                                   |
+| -------------------------------------------------- | ------------------------------------------ |
+| Install, configure, release, roll back, maintain   | [docs/OPERATIONS.md](docs/OPERATIONS.md)   |
+| Pull request gate, rulesets, limits of local hooks | [docs/ENFORCEMENT.md](docs/ENFORCEMENT.md) |
+| Security review, threat model, residual risks      | [docs/SECURITY.md](docs/SECURITY.md)       |
+| Benchmarks                                         | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) |
+| Test suites                                        | [docs/TESTING.md](docs/TESTING.md)         |
+| Release notes                                      | [CHANGELOG.md](CHANGELOG.md)               |
 
 ## Use
 
@@ -69,10 +81,20 @@ Exit codes: `0` pass, `1` blocking findings, `2` the engine could not run. Calle
 
 Findings are plain text with a fix hint and the control and rule IDs from `repo-docs/capabilities`. They never contain secret values and are never phrased as instructions to an agent.
 
+## Where the engine runs (execution gate)
+
+The engine acts only in a repository that is owned by `LedgerLink-ai` and listed with `enabled: true` in [registry/repositories.yaml](registry/repositories.yaml). Anywhere else it does nothing, silently, and exits 0: personal repositories, other organisations, forks, unlisted repositories, and repositories an administrator disabled. The hook commands (`check`, `precommit`, `prepare-commit-msg`, `commit-msg`, `prepush`, `prepr`, `baseline`, `repo-tool`, `repo-script`) are gated; `setup`, `doctor`, `rules`, `validate`, `conform`, `version` and `help` are not. `qa doctor` shows whether QA is enabled for the current repository.
+
+- **Local:** identity is the `origin` remote (`owner/name`), not the folder name or `--repo`. A missing or unrecognised origin means skip. A developer controls their own remote, so this keeps the hooks out of unrelated repositories but is not tamper-proof.
+- **GitHub Actions:** identity comes from `GITHUB_REPOSITORY` and the event payload, not the checkout. Forks, and pull requests from forks, are skipped. An identity that cannot be verified is exit 2 (fail closed).
+- **Elsewhere in CI** (`CI` set, not GitHub Actions): an origin that cannot be verified is exit 2.
+- **Allowlist changes** are pull requests to this repository with code-owner review; the list ships in the released package. Onboarding and offboarding commands (issue #14) are not built yet.
+
 ## Layout
 
 ```
 registry/ai-registry.yaml   approved AI tools, models, agent identities, MCP servers (C14-1)
+registry/repositories.yaml  repositories where the engine may run (execution gate, issue #8)
 path-tags.yaml              tags by repo and glob; later generates CODEOWNERS
 checks.yaml                 every check: kind, stage, scope, tags, control and rule IDs
 policy.yaml                 report/block modes, switch-on dates, protected paths, local time budget
@@ -104,7 +126,7 @@ To add a check:
 
 Changes reach `main` in two steps, each a pull request:
 
-1. A feature branch (for example `LCORE-210-limit-invariants`) into `dev`. The `ci` checks on Windows, macOS and Linux must pass.
+1. A feature branch (for example `feature/LCORE-210-limit-invariants`) into `dev`. The `ci` checks on Windows, macOS and Linux must pass.
 2. `dev` into `main`, merged with a merge commit so the two branches stay in step. The `ci` checks and `branch-policy` must pass; `branch-policy` fails any pull request into `main` that does not come from `dev`.
 
 Both branches take changes only through pull requests, with conversations resolved, and cannot be force-pushed or deleted. Release tags (`v*`) cannot be moved or deleted. When a merge into `main` changes the version in `package.json`, the release workflow tags it and publishes the package ([docs/PACKAGE.md](docs/PACKAGE.md)).

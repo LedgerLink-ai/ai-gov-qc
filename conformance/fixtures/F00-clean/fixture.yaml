@@ -4,7 +4,7 @@ repo: link_core
 actor: agent
 as_of: 2027-01-08
 commit_message: |
-  LCORE-212: Add bounded retry to the settlement poller
+  feat(LCORE-212): add bounded retry to the settlement poller
 
   Assisted-by: Cursor, gpt-5, 1.7.0
 exact: true

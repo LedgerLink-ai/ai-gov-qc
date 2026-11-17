@@ -22,6 +22,8 @@ export interface Fixture {
   requires?: string[];
   pending?: string;
   commit_message?: string;
+  /** The branch being committed to: runs branch.ticket, and commit.message against it. */
+  branch?: string;
   baseline_from_self?: boolean;
   values?: Record<string, string[] | { codepoint: string }>;
   exact?: boolean;
@@ -119,6 +121,7 @@ async function runApi(
     changedFiles: listFiles(root).map((path) => ({ path, status: 'A' as const })),
     source: directorySource(root),
     commitMessage: fixture.commit_message,
+    branch: fixture.branch,
     baseline,
     exclude: excludedChecks(config),
   });
@@ -133,6 +136,13 @@ async function runApi(
     errors: result.engineErrors,
   };
 }
+
+/**
+ * Fixtures are loose folders in the temp directory, not allowlisted
+ * repositories. The execution gate honours this only for such a folder
+ * (outside any git work tree), never for a real repository.
+ */
+const CONFORMANCE_ENV = { ...process.env, QA_CONFORMANCE: '1' };
 
 function runCli(
   cliPath: string,
@@ -158,17 +168,22 @@ function runCli(
   const excluded = excludedChecks(config);
   if (excluded.length > 0) common.push('--exclude', excluded.join(','));
   const extra: string[] = [];
+  if (fixture.branch !== undefined) extra.push('--branch', fixture.branch);
   if (fixture.commit_message !== undefined) {
     const msgFile = commitMessageFile(root);
     writeFileSync(msgFile, fixture.commit_message);
     extra.push('--commit-msg-file', msgFile);
   }
   if (fixture.baseline_from_self) {
-    const b = spawnSync(process.execPath, [cliPath, 'baseline', ...common, ...extra], { encoding: 'utf8' });
+    const b = spawnSync(process.execPath, [cliPath, 'baseline', ...common, ...extra], {
+      encoding: 'utf8',
+      env: CONFORMANCE_ENV,
+    });
     if (b.status !== 0) return { observed: [], errors: [`qa baseline exited ${b.status}: ${b.stderr.trim()}`] };
   }
   const res = spawnSync(process.execPath, [cliPath, 'check', ...common, ...extra, '--format', 'json'], {
     encoding: 'utf8',
+    env: CONFORMANCE_ENV,
   });
   if (res.status === null || res.status > 2 || !res.stdout) {
     return { observed: [], errors: [`qa check exited ${res.status}: ${res.stderr.trim()}`] };

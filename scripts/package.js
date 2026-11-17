@@ -15,7 +15,7 @@
 //
 // Install it from wherever it is hosted (a file share, CodeArtifact, GitHub
 // Packages) with "npm install -g <file, URL or @ledgerlink/qa@<version>>",
-// then run "qa setup" once for pre-commit, Semgrep, Gitleaks and the git template.
+// then run "qa setup" once for pre-commit, Semgrep, Gitleaks and the hooks for every repository.
 
 const { execFileSync, execSync } = require('node:child_process');
 const { createHash } = require('node:crypto');
@@ -65,24 +65,33 @@ const README = (version) => `# ${NAME} ${version}
 
 LedgerLink's local checks for every repository: the \`qa\` command behind the
 pre-commit, prepare-commit-msg, pre-push and pre-PR hooks. Works on Windows, macOS and
-Linux. Needs Node 20+, git and Python 3.9 to 3.14.
+Linux. Needs Node 20+, git and Python 3.11 to 3.14.
 
 ## Install, once per machine
 
-    npm install -g <ledgerlink-qa-${version}.tgz, its URL, or ${NAME}@${version}>
+Verify the file first (its SHA-256 and the build provenance signed by the
+release workflow), then install it without running package scripts:
+
+    sha256sum -c ledgerlink-qa-${version}.tgz.sha256
+    gh attestation verify ledgerlink-qa-${version}.tgz --repo LedgerLink-ai/ai-gov-qc
+    npm install -g --ignore-scripts ./ledgerlink-qa-${version}.tgz
     qa setup
+
+Operations, rollback and maintenance: docs/OPERATIONS.md in the qa repository.
 
 \`qa setup\` installs pre-commit, Semgrep and Gitleaks at the versions pinned in
 \`config/policy.yaml\` into ~/.ledgerlink-qa (Gitleaks is checked against its
-published SHA-256), and sets up the git template so every new clone connects
-the hooks. Add the \`bin\` folder it names to PATH. Without network access to
+published SHA-256), and connects the hooks in every repository on the machine,
+existing clones included (git's global core.hooksPath; \`qa setup --uninstall\`
+removes them). Add the \`bin\` folder it names to PATH. Without network access to
 GitHub: \`qa setup --gitleaks-archive <downloaded archive>\`.
 
 ## Each repository
 
-Copy \`templates/pre-commit-config.yaml\` from this package to the repository
-as \`.pre-commit-config.yaml\`, adjust the script names, and commit it. In a
-clone made before \`qa setup\`, run \`pre-commit install\` once. Then:
+Nothing to copy: in every opted-in LedgerLink-ai repository the hooks use the
+default configuration in this package (\`templates/pre-commit-config.yaml\`).
+To change what runs in one repository, copy that file there as
+\`.pre-commit-config.yaml\`; the copy then wins. Then:
 
     qa doctor                                      # is this machine and repository ready?
     pre-commit run --hook-stage manual --all-files # the pre-PR checks

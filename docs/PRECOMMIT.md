@@ -2,11 +2,11 @@
 
 Step 1 of the AI Code Review flow (`LedgerLink_AI_Code_Review_Implementation.docx` v2, section 2, and the Development Guideline Policy V1.0, "Local hooks"): checks on the developer's machine, using the pre-commit framework, with every hook pinned to an exact version. They run at three checkpoints:
 
-| Checkpoint          | When                                                                            | Target  | What runs                                                                                                                                                                                                                                                                                                                                                                                                      | Measured (sandbox)        |
-| ------------------- | ------------------------------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| Stage 1: pre-commit | Every `git commit`                                                              | 5–15 s  | Formatting and linting of the staged files (the repository's own Prettier and ESLint); `check-added-large-files` (500 KB) and `check-merge-conflict`; `qa-precommit`: Gitleaks 8.30.1 with private-key and BIP39 rules, agent instruction files, MCP allowlist, protected paths. Then the prepare-commit-msg hook: `qa-prepare-commit-msg` pre-fills the ticket key and Assisted-by; it never rejects a commit | 12 s for the whole commit |
-| Stage 2: pre-push   | Every `git push`                                                                | 30–90 s | Unit tests (`repo-script`), type check (`repo-tool typescript:tsc --noEmit`), build verification, optional dependency check, `qa-prepush`: Semgrep 1.183.0 (C16-1 money types on ledger, payments, signing and ingestion paths)                                                                                                                                                                                | 20 s                      |
-| Stage 3: pre-PR     | Before opening a pull request: `pre-commit run --hook-stage manual --all-files` | 1–3 min | Full lint, formatting of every file the PR changes, full test suite with coverage, build, then `qa-prepr`: ticket key in the branch name, Assisted-by form on every commit, diff size, coverage threshold (all report only), and every qa check again on the whole change since the base branch                                                                                                                | 20 s                      |
+| Checkpoint          | When                                                                            | Target  | What runs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Measured (sandbox)        |
+| ------------------- | ------------------------------------------------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| Stage 1: pre-commit | Every `git commit`                                                              | 5–15 s  | Formatting and linting of the staged files (the repository's own Prettier and ESLint); `check-added-large-files` (500 KB) and `check-merge-conflict`; `qa-precommit`: Gitleaks 8.30.1 with private-key and BIP39 rules, agent instruction files, MCP allowlist, protected paths. `branch.ticket`: the branch carries a valid ticket key. Then the prepare-commit-msg hook: `qa-prepare-commit-msg` pre-fills `<type>(<TICKET-123>): ` and Assisted-by (it never rejects a commit), and the commit-msg hook: `qa-commit-msg` checks the subject against the branch | 12 s for the whole commit |
+| Stage 2: pre-push   | Every `git push`                                                                | 30–90 s | Unit tests (`repo-script`), type check (`repo-tool typescript:tsc --noEmit`), build verification, optional dependency check, `qa-prepush`: Semgrep 1.183.0 (C16-1 money types on ledger, payments, signing and ingestion paths)                                                                                                                                                                                                                                                                                                                                   | 20 s                      |
+| Stage 3: pre-PR     | Before opening a pull request: `pre-commit run --hook-stage manual --all-files` | 1–3 min | Full lint, formatting of every file the PR changes, full test suite with coverage, build, then `qa-prepr`: branch name convention, every commit subject and Assisted-by form, diff size, coverage threshold (all report only), and every qa check again on the whole change since the base branch                                                                                                                                                                                                                                                                 | 20 s                      |
 
 Stage 2 and 3 run the repository's own scripts through two generic hooks, so one template fits every repository:
 
@@ -17,12 +17,13 @@ Both print a "skipped" notice and pass when the repository's dependencies are no
 
 The pull request rules (stage 3) and their limits are in `policy.yaml` under `pr:`:
 
-| Check            | Rule                                                                                                                            | Mode                                                     |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| `pr.branch-name` | The branch carries a ticket key (`LCORE-210-limit-invariants`), which the hook copies into messages; not the base branch itself | report: the key is recommended, not required             |
-| `pr.commits`     | The Assisted-by trailer of every commit since the base branch is `<tool>, <model>, <version>` (form only)                       | report: the pull request's pr-rules job blocks           |
-| `pr.diff-size`   | Warning above 400 changed lines, error above 1,000; lockfiles and snapshots not counted                                         | report                                                   |
-| `tests.coverage` | Line coverage of at least 80% in each `coverage/coverage-summary.json` (Istanbul json-summary: c8, nyc, Jest, Vitest)           | report: the plan keeps a coverage gate out of this phase |
+| Check                | Rule                                                                                                                  | Mode                                                     |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| `pr.branch-name`     | The branch follows `<type>/<TICKET-123>-<description>` (`conventions` in policy.yaml); not the base branch itself     | report, until a blocking date is agreed                  |
+| `pr.commit-messages` | Every commit subject follows `<type>(<TICKET-123>): <description>` with the branch's ticket                           | report, until a blocking date is agreed                  |
+| `pr.commits`         | The Assisted-by trailer of every commit since the base branch is `<tool>, <model>, <version>` (form only)             | report: the pull request's pr-rules job blocks           |
+| `pr.diff-size`       | Warning above 400 changed lines, error above 1,000; lockfiles and snapshots not counted                               | report                                                   |
+| `tests.coverage`     | Line coverage of at least 80% in each `coverage/coverage-summary.json` (Istanbul json-summary: c8, nyc, Jest, Vitest) | report: the plan keeps a coverage gate out of this phase |
 
 `qa prepr` finds the base branch from `origin/HEAD` (for example `origin/develop`); set `QA_PR_BASE` to use another.
 
@@ -34,34 +35,34 @@ The Gitleaks rules added to the defaults are in `config/gitleaks.toml`, generate
 - `solana-keypair-array`
 - `bip39-mnemonic`, built from the BIP39 English wordlist, which is checked against its published SHA-256
 
-Local hooks can be bypassed with `git commit --no-verify`. That is accepted: the pull request runs every check again, where it cannot be skipped. (The prepare-commit-msg hook still runs with `--no-verify`, so messages are still pre-filled.)
+Local hooks can be bypassed with `git commit --no-verify`, and a developer controls their own machine, so the hooks are fast feedback, not the control. The control is the pull request gate: `.github/workflows/qa-pr.yml` runs every qa check again on GitHub's runners with the configuration released with qa, and rulesets make it a required check that only organisation administrators can bypass ([ENFORCEMENT.md](ENFORCEMENT.md), which lists every limitation of local hooks). (The prepare-commit-msg hook still runs with `--no-verify`, so messages are still pre-filled.)
 
-### Commit messages
+### Branch names and commit messages
 
-No subject format is enforced, and nothing about the message blocks locally (Development Guideline Policy, "Commit messages and signing"). The recommended form, which most LedgerLink repositories already use:
+Branches are named `<type>/<TICKET-123>-<short-description>` and commit subjects `<type>(<TICKET-123>): <description>`, with the ticket key taken from the branch (AIQC-87; the full rules, errors and configuration are in [BRANCH-AND-COMMIT-CONVENTIONS.md](BRANCH-AND-COMMIT-CONVENTIONS.md)):
 
 ```
-LCORE-212: Add idempotency key to refund endpoint
+feat(LCORE-212): add idempotency key to refund endpoint
 
 Assisted-by: <tool>, <model>, <version>    (AI-assisted commits only)
 ```
 
-The `prepare-commit-msg` hook (`qa prepare-commit-msg`) pre-fills the message before you write or edit it, and prints what it added:
+The pre-commit hook checks the branch (`branch.ticket`) and the commit-msg hook the subject (`commit.message`); both report only until a blocking date is agreed. The `prepare-commit-msg` hook (`qa prepare-commit-msg`) pre-fills the message before you write or edit it, and prints what it added:
 
-- **Ticket key** from the branch name: `LCORE-210-limit-invariants` (or `feature/LCORE-210-…`) gives `LCORE-210: `, unless the subject already starts with a key.
+- **Type and ticket key** from the branch name: `feature/LCORE-210-limit-invariants` gives `feat(LCORE-210): `. `fix: x` becomes `fix(LCORE-210): x`; a subject that already follows the convention is left alone.
 - **Assisted-by** from your default, set once with `git config --global ledgerlink.assistedBy "<tool>, <model>, <version>"` (`QA_ASSISTED_BY` is the fallback; `none` for developers who do not use AI tools). Delete the line when no AI was used; with `git commit -m` no editor opens, so the hook prints the line it added and `git commit --amend` removes it.
 - **AI `Co-authored-by` lines** become `Assisted-by`: with your default when it names the same tool, else `<tool>, <model>, <version>` to fill in.
 - **Left alone:** merges, squashes, amends, `-c`/`-C` reuse, and `fixup!`/`squash!`/`amend!` and `Revert "…"` subjects.
 
-The Assisted-by trailer is checked for its form only, on the pull request (`pr-rules`, Danger JS); `qa prepr` reports the same locally. A malformed trailer typed by hand is therefore caught on the pull request, not at commit time. A repository whose own husky `commit-msg` hook already requires its Jira key keeps that hook.
+The Assisted-by trailer is checked for its form only: by the commit-msg hook (report only) and on the pull request (`pr-rules`, Danger JS); `qa prepr` reports the same locally. A repository whose own husky `commit-msg` hook already requires its Jira key keeps that hook.
 
-When the hook adds nothing it says why, so a message left as it was is not mistaken for a hook that did not run: `no ticket key added: branch qa/quality-gates has none …` and `no Assisted-by added: no default set …` (the second is silent once the default is set, including to `none`). `qa doctor` also shows the default, or warns that it is not set.
+When the hook adds nothing it says why, so a message left as it was is not mistaken for a hook that did not run: `no ticket key added: Branch "qa/quality-gates" has no ticket key. …` with the command to rename the branch, and `no Assisted-by added: no default set …` (the second is silent once the default is set, including to `none`). `qa doctor` also shows the default, or warns that it is not set.
 
-One effect of pre-filling: in the editor, saving without typing no longer aborts the commit (the message is not empty); it creates a commit whose subject is only the key, e.g. `LCORE-210:`. Abort by deleting every line instead.
+One effect of pre-filling: in the editor, saving without typing no longer aborts the commit (the message is not empty); git then stores a subject that is only the prefix, e.g. `feat(LCORE-210):`, which the commit-msg hook reports. Abort by deleting every line instead.
 
 ## 1. Once per machine
 
-Everything comes from one package, `@ledgerlink/qa` (`ledgerlink-qa-<version>.tgz`). It works the same on Windows, macOS and Linux. Requirements: Node 20 or later, git, and Python 3.9 to 3.14.
+Everything comes from one package, `@ledgerlink/qa` (`ledgerlink-qa-<version>.tgz`). It works the same on Windows, macOS and Linux. Requirements: Node 20 or later, git, and Python 3.11 to 3.14.
 
 ```bash
 npm install -g <full path to ledgerlink-qa-0.2.1.tgz, its URL, or @ledgerlink/qa@0.2.1>
@@ -73,17 +74,22 @@ git config --global ledgerlink.assistedBy "<tool>, <model>, <version>"   # or "n
 - **`qa setup`** installs the external tools at the versions pinned under `tools:` in `policy.yaml`, into `~/.ledgerlink-qa` (`QA_HOME` or `--home` to change it):
   - **pre-commit and Semgrep:** pip, into a private Python environment, so the machine's own Python is left alone.
   - **Gitleaks:** the release archive for this OS and CPU, checked against the official SHA-256 list stored in `config/gitleaks_8.30.1_checksums.txt` before it is unpacked. With no access to GitHub, download the archive another way and run `qa setup --gitleaks-archive <file>`, or use a mirror with `--download-base <url>`.
-  - **The git template:** sets `init.templateDir`, so every clone from then on has the pre-commit, prepare-commit-msg and pre-push hooks connected. A template that pre-commit made earlier with an older hook list is updated; any other `init.templateDir` is left alone.
+  - **The hooks for every repository:** writes one small script per git hook into `~/.ledgerlink-qa/hooks` and sets git's global `core.hooksPath` to it. Every clone on the machine, made before or after, then runs the pre-commit, prepare-commit-msg, commit-msg and pre-push hooks, and nothing is copied into any repository.
+    - In an opted-in LedgerLink-ai repository, the hooks run the checks from the repository's `.pre-commit-config.yaml` if it has one, else from the default configuration that ships with qa. Everywhere else they do nothing.
+    - Each repository's own `.git/hooks` (Git LFS, an earlier `pre-commit install`) still runs.
+    - A `core.hooksPath` that is not qa's is left alone, and setup says so.
+    - `qa setup --uninstall` removes the hooks. `qa setup --no-global-hooks` sets up the older git template (`init.templateDir`, new clones only) instead.
 - **Add `~/.ledgerlink-qa/bin` to PATH.** `qa setup` prints the command for your OS. Git's own hooks work without it, but husky and your shell need it to find `pre-commit`.
 - **Check:** `qa doctor` in any repository ends with `result: READY`.
 
 Semgrep is optional locally: without it the pre-push hook prints `sast.semgrep … runs in CI`. Gitleaks is needed for the secret scan; without it the scan is skipped locally with the same notice.
 
-After setup, for existing clones:
+After setup:
 
-- **A clone that already exists:** run `git init` inside it once to pick up the template, or `pre-commit install`.
-- **A repository without `.pre-commit-config.yaml`:** the hooks print "config file not found. Skipping" and change nothing.
-- **husky repositories:** husky owns the hooks there and calls pre-commit itself.
+- **Existing clones:** nothing to do; they are connected.
+- **A repository without `.pre-commit-config.yaml`:** the default configuration runs.
+- **husky repositories:** husky sets `core.hooksPath` in the repository, which overrides the global one, so husky's hooks run and must call qa (`qa hook pre-commit`, or pre-commit itself; see below).
+- **Repositories outside LedgerLink-ai, or not on the allowlist:** only their own hooks run.
 
 **Nothing is installed per repository.** The hooks call the one `qa` installed on the machine, so ten repositories share it. Each repository pins the version it needs: its hooks run `qa --require 0.2.0 …`, and an incompatible `qa` stops with the install command instead of checking. Compatible means the same major version (the same minor below 1.0) and not older.
 
@@ -91,9 +97,9 @@ On this machine (3 Nov 2026) the tools were installed earlier by hand, with pip 
 
 ## 2. Once per repository
 
-1. Copy `templates/pre-commit-config.yaml` (also in the installed package, under `templates/`) to the repository root as `.pre-commit-config.yaml`. Change the script names in `args` and `entry` to the repository's own, delete what does not apply, and commit it once.
-2. Only if the git template is not set up: run `pre-commit install` in each clone.
-3. Run `qa doctor` in the repository. It checks the tool versions against `policy.yaml`, the installed `qa` against the repository's `--require` version, the config file and the three hooks, and ends with `result: READY` or `result: NOT READY`.
+1. Nothing to copy. Only to change what runs in this repository: copy `templates/pre-commit-config.yaml` (also in the installed package, under `templates/`) to the repository root as `.pre-commit-config.yaml`, change the script names in `args` and `entry` to the repository's own, delete what does not apply, and commit it. That copy then replaces the default.
+2. Only with `qa setup --no-global-hooks` and no git template: run `pre-commit install` in each clone.
+3. Run `qa doctor` in the repository. It checks the tool versions against `policy.yaml`, the installed `qa` against the repository's `--require` version, the config file and the four hooks, and ends with `result: READY` or `result: NOT READY`.
 
 **Before the package is installed on a machine**, the repository's hooks fail with "qa: command not found". Install it, or skip the hooks once with `--no-verify`.
 
@@ -110,6 +116,7 @@ Some repositories use husky, for example `link-dashboard` and `internal_bank_sim
 | `.pre-commit-config.yaml`   | New. The template without `default_install_hook_types`, with the repository's own script names in each stage                                                                                                                            |
 | `.husky/pre-commit`         | Add `pre-commit run --hook-stage pre-commit` after the existing commands                                                                                                                                                                |
 | `.husky/prepare-commit-msg` | New: `pre-commit run --hook-stage prepare-commit-msg --commit-msg-filename "$1" --prepare-commit-message-source "$2" --commit-object-name "$3"`. An existing `.husky/commit-msg` that enforces the repository's Jira key stays as it is |
+| `.husky/commit-msg`         | New, or added after an existing Jira-key check: `pre-commit run --hook-stage commit-msg --commit-msg-filename "$1"` (the commit message checks)                                                                                         |
 | `.husky/pre-push`           | Only `pre-commit run --hook-stage pre-push`: the stage 2 checks move into `.pre-commit-config.yaml`, so they are listed once                                                                                                            |
 | `package.json`              | A `pre-pr` script: `pre-commit run --hook-stage manual --all-files`                                                                                                                                                                     |
 
