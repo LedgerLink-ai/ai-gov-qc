@@ -72,6 +72,13 @@ describeBuilt('qa CLI end to end', () => {
     const tool = qa(['repo-tool', '../../evil'], { cwd: repo.dir, env: env() });
     expect(tool.status).toBe(2);
     expect(tool.stderr).toMatch(/not an npm package name/);
+    // With the --require pin the hooks use, the tool's own flags still are not qa's.
+    const pinned = qa(['--require', '0.2.0', 'repo-tool', '../../evil', '--log-level', 'log'], {
+      cwd: repo.dir,
+      env: env(),
+    });
+    expect(pinned.status).toBe(2);
+    expect(pinned.stderr).toMatch(/not an npm package name/);
     const script = qa(['repo-script', '--cwd', '..', 'test'], { cwd: repo.dir, env: env() });
     expect(script.status).toBe(2);
     expect(script.stderr).toMatch(/outside the repository/);
