@@ -1,6 +1,8 @@
 # The pull request gate: every qa check, independently of the developer's
 # machine (issue #15, bypass prevention). Local hooks can be skipped with
-# --no-verify; this cannot, once it is a required status check.
+# --no-verify; this cannot, once it is a required status check. Called from a
+# stub (option 2), the stub runs from the pull request's own commit, so the
+# code-owner review of .github/ is what stops a pull request from changing it.
 #
 # Two ways to make it mandatory on an opted-in LedgerLink-ai repository
 # (docs/ENFORCEMENT.md):
@@ -127,7 +129,7 @@ jobs:
       - name: install the scanners (pinned, hash-checked)
         run: |
           set -euo pipefail
-          qa setup --no-git-template
+          qa setup --no-global-hooks --no-git-template
           echo "$QA_HOME/bin" >> "$GITHUB_PATH"
 
       - name: qa checks
@@ -195,7 +197,9 @@ jobs:
           fi
 
       - name: upload to code scanning
-        if: always() && inputs.upload-sarif != false && steps.qa.outputs.sarif == 'true'
+        # Required by an organisation ruleset, the workflow runs on pull_request and
+        # inputs is empty: format() turns a missing input into '', which uploads.
+        if: always() && format('{0}', inputs.upload-sarif) != 'false' && steps.qa.outputs.sarif == 'true'
         continue-on-error: true # code scanning may be off for the repository; the evidence artifact still has the results
         uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
