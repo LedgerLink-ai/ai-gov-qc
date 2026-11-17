@@ -37,9 +37,11 @@ export class ToolTimeoutError extends Error {
 
 // Environment variable names that carry credentials. Scanners never need
 // them, so they are removed before a scanner starts: a compromised or
-// misbehaving tool cannot read or leak what it is not given.
+// misbehaving tool cannot read or leak what it is not given. AUTH matches
+// AUTHORIZATION but not AUTHOR (QA_PR_AUTHOR, GIT_AUTHOR_NAME), which names a
+// person, not a credential.
 const CREDENTIAL_NAME =
-  /(TOKEN|SECRET|PASSWORD|PASSWD|PASSPHRASE|CREDENTIAL|PRIVATE[_-]?KEY|API[_-]?KEY|ACCESS[_-]?KEY|AUTH|COOKIE|SESSION|_PAT$|^PAT$|WEBHOOK)/i;
+  /(TOKEN|SECRET|PASSWORD|PASSWD|PASSPHRASE|CREDENTIAL|PRIVATE[_-]?KEY|API[_-]?KEY|ACCESS[_-]?KEY|AUTH(?!OR(?!IZ))|COOKIE|SESSION|_PAT$|^PAT$|WEBHOOK)/i;
 
 /** Names that look like credentials but are needed to run programs at all. */
 const KEEP = new Set(['SSH_AUTH_SOCK']);

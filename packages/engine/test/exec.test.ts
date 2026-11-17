@@ -45,7 +45,20 @@ describe('credentials in the environment', () => {
       'GH_PAT',
     ])
       expect(isCredentialName(name)).toBe(true);
-    for (const name of ['PATH', 'HOME', 'USERPROFILE', 'SystemRoot', 'TEMP', 'QA_HOME', 'SSH_AUTH_SOCK'])
+    expect(isCredentialName('PROXY_AUTHORIZATION')).toBe(true);
+    expect(isCredentialName('GH_AUTH')).toBe(true);
+    for (const name of [
+      'PATH',
+      'HOME',
+      'USERPROFILE',
+      'SystemRoot',
+      'TEMP',
+      'QA_HOME',
+      'SSH_AUTH_SOCK',
+      'QA_PR_AUTHOR',
+      'GIT_AUTHOR_NAME',
+      'GIT_AUTHOR_EMAIL',
+    ])
       expect(isCredentialName(name)).toBe(false);
   });
 

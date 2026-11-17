@@ -59,7 +59,7 @@ When it passes, `release.yml` reads the version in `package.json`. If `v<version
 ```bash
 npm run package
 npm install -g --prefix <empty folder> ./out/ledgerlink-qa-0.2.1.tgz --offline
-<empty folder>/qa setup --home <another folder> --no-git-template
+<empty folder>/qa setup --home <another folder> --no-global-hooks --no-git-template
 ```
 
 `--prefix` and `--home` keep the test away from the machine's own setup. The sandbox in [PRECOMMIT.md](PRECOMMIT.md) uses the package the same way: `npm run sandbox -- refresh` rebuilds it, unpacks it into `../sandbox/qa-package`, and points the clone's hooks at it.

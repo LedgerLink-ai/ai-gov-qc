@@ -43,6 +43,13 @@ describe('hook scripts', () => {
     expect(post).toContain('exec "$own" "$@"');
   });
 
+  it("carries qa's home, so qa hook finds pre-commit after qa setup --home without QA_HOME set", () => {
+    expect(hookScript('pre-commit', { ...QA, home: '/opt/qa home' })).toContain(
+      `if [ -z "\${QA_HOME:-}" ]; then QA_HOME='/opt/qa home'; export QA_HOME; fi`,
+    );
+    expect(hookScript('pre-commit', QA)).not.toContain('QA_HOME');
+  });
+
   it('writes a script for every hook, and never touches files that are not its own', () => {
     writeFileSync(join(dir, 'post-merge'), '#!/bin/sh\necho mine\n');
     writeHookScripts(dir, QA);
@@ -51,6 +58,8 @@ describe('hook scripts', () => {
       expect(readFileSync(join(dir, hook), 'utf8')).toContain(MANAGED_MARKER);
     expect(readFileSync(join(dir, 'post-merge'), 'utf8')).toBe('#!/bin/sh\necho mine\n');
     expect(existsSync(join(dir, 'reference-transaction'))).toBe(false);
+    // Its presence alone would turn off git's own receive.denyCurrentBranch=updateInstead.
+    expect(existsSync(join(dir, 'push-to-checkout'))).toBe(false);
 
     removeHookScripts(dir);
     expect(hookScriptsInstalled(dir)).toBe(false);
@@ -252,6 +261,44 @@ describeHooks('commits and pushes through the hooks for every repository', () =>
     expect(existsSync(marker)).toBe(false);
   }, 300_000);
 
+  it("runs the repository's own hook with the interpreter its #! line names", () => {
+    const repo = clone(PERSONAL);
+    const marker = join(repo.dir, '.git', 'node-hook.ran');
+    const file = join(repo.dir, '.git', 'hooks', 'pre-commit');
+    mkdirSync(join(repo.dir, '.git', 'hooks'), { recursive: true });
+    writeFileSync(
+      file,
+      `#!/usr/bin/env node\nrequire('fs').writeFileSync(${JSON.stringify(posix(marker))}, 'node');\n`,
+    );
+    chmodSync(file, 0o755);
+    writeFileSync(join(repo.dir, 'n.md'), 'n\n');
+    repo.git('add', '.');
+    const res = repo.git('commit', '-m', 'Add n');
+    expect(out(res)).not.toMatch(/syntax error|not found/);
+    expect(res.status).toBe(0);
+    expect(readFileSync(marker, 'utf8')).toBe('node');
+  }, 120_000);
+
+  it('does not run the own hook again when git ran it and it calls qa hook (core.hooksPath=.git/hooks)', () => {
+    const repo = clone(LEDGERLINK);
+    repo.git('config', 'core.hooksPath', '.git/hooks');
+    mkdirSync(join(repo.dir, '.git', 'hooks'), { recursive: true });
+    const file = join(repo.dir, '.git', 'hooks', 'pre-commit');
+    writeFileSync(file, '#!/bin/sh\nqa hook pre-commit "$@"\n');
+    chmodSync(file, 0o755);
+    writeFileSync(join(repo.dir, 'AGENTS.md'), HIDDEN);
+    repo.git('add', '.');
+    const res = spawnSync('git', ['commit', '-m', 'Add agent instructions'], {
+      cwd: repo.dir,
+      env,
+      encoding: 'utf8',
+      timeout: 120_000,
+    });
+    expect(res.error).toBeUndefined();
+    expect(res.status).not.toBe(0);
+    expect(out(res)).toContain('ai-config.content-lint');
+  }, 180_000);
+
   it('passes every other hook to the repository (Git LFS and the like keep working)', () => {
     const repo = clone(PERSONAL);
     const marker = ownHook(repo.dir, 'post-commit');
@@ -332,6 +379,16 @@ describeBuilt('qa setup and qa doctor with the hooks for every repository', () =
     expect(removed.status).toBe(0);
     expect(globalGet('core.hooksPath')).toBe('');
     expect(existsSync(hooks)).toBe(false);
+  });
+
+  it('connects no hooks with --no-global-hooks --no-git-template (CI)', () => {
+    const setup = qa(['setup', '--no-python', '--no-gitleaks', '--no-global-hooks', '--no-git-template'], {
+      cwd: work,
+      env,
+    });
+    expect(setup.stdout).not.toMatch(/global hooks/);
+    expect(globalGet('core.hooksPath')).toBe('');
+    expect(globalGet('init.templateDir')).toBe('');
   });
 
   it("leaves a core.hooksPath that is not qa's alone", () => {
