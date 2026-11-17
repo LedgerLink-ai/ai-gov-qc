@@ -42,15 +42,27 @@ jobs:
           node packages/engine/bin/qa.js setup --config . --home "$RUNNER_TEMP/qa-home" --no-git-template
           echo "QA_HOME=$RUNNER_TEMP/qa-home" >> "$GITHUB_ENV"
           echo "$RUNNER_TEMP/qa-home/bin" >> "$GITHUB_PATH"
+      # Unit, integration, end-to-end (CLI and git hook lifecycle), security,
+      # negative authorization and performance tests (docs/TESTING.md).
       - run: npm test
       - run: npm run conform
+
+      # Performance benchmark (docs/PERFORMANCE.md), kept for comparison in review.
+      - name: benchmark
+        shell: bash
+        run: node scripts/benchmark.js --files 300 --repeat 3 --json "out/benchmark-${{ matrix.os }}.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: benchmark-${{ matrix.os }}
+          path: out/benchmark-${{ matrix.os }}.json
+          if-no-files-found: error
 
       # The package: built, installed globally from the file, and run.
       - run: npm run package
       - name: install and run the package
         shell: bash
         run: |
-          npm install -g --no-audit --no-fund ./out/ledgerlink-qa-*.tgz
+          npm install -g --no-audit --no-fund --ignore-scripts ./out/ledgerlink-qa-*.tgz
           qa version
           qa validate
       - if: matrix.os == 'ubuntu-latest'

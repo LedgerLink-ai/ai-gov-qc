@@ -1,6 +1,6 @@
 import { readFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { relative, isAbsolute } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import type { RepositoryAllowlist } from './types';
 
@@ -122,6 +122,63 @@ function githubActionsIdentity(env: GateEnv): GateDecision | RepoIdentity {
     }
   }
   return id;
+}
+
+/**
+ * The real path of `p`. For a path that does not exist (yet), the real path
+ * of its nearest existing ancestor plus the rest, so /var/x/new on macOS
+ * (/var is a link to /private/var) and C:\Users\RUNNER~1\new on Windows (an
+ * 8.3 short name) compare equal to their resolved spellings.
+ */
+export function realOrResolved(p: string): string {
+  let current = resolve(p);
+  const rest: string[] = [];
+  for (;;) {
+    try {
+      return join(realpathSync.native(current), ...rest);
+    } catch {
+      const parent = dirname(current);
+      if (parent === current) return resolve(p);
+      rest.unshift(basename(current));
+      current = parent;
+    }
+  }
+}
+
+/** True when `inner` is `outer` or a folder below it (real paths, case-insensitive on Windows). */
+export function isWithin(inner: string, outer: string): boolean {
+  const norm = (p: string): string =>
+    process.platform === 'win32' ? realOrResolved(p).toLowerCase() : realOrResolved(p);
+  const rel = relative(norm(outer), norm(inner));
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
+/**
+ * Configuration trust (issue #15): the policies, allowlist and rules come
+ * from the installed qa package, never from the repository being checked.
+ * Returns why a configuration directory may not be used for `root`, or
+ * undefined when it may.
+ *
+ * - A directory named by --config or QA_CONFIG_DIR inside the repository is
+ *   refused everywhere: a pull request could otherwise switch checks off.
+ * - In GitHub Actions, --config and QA_CONFIG_DIR are refused altogether: CI
+ *   validates with the configuration released with qa, independently of
+ *   anything the repository or its workflow says.
+ * Conformance fixtures (loose folders in the temp directory) are exempt.
+ */
+export function configSourceProblem(
+  config: { dir: string; origin: 'flag' | 'env' | 'bundled' | 'checkout' },
+  root: string,
+  env: GateEnv = process.env,
+): string | undefined {
+  if (config.origin !== 'flag' && config.origin !== 'env') return undefined;
+  if (isConformanceRoot(root, env)) return undefined;
+  const named = config.origin === 'flag' ? '--config' : 'QA_CONFIG_DIR';
+  if (isWithin(config.dir, root))
+    return `${named} points inside the repository being checked (${config.dir}); qa uses the configuration released with it`;
+  if (env.GITHUB_ACTIONS === 'true')
+    return `${named} is not accepted in GitHub Actions; CI checks with the configuration released with qa`;
+  return undefined;
 }
 
 /** Decide whether the engine may run for the repository at `root`. */
