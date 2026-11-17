@@ -37,6 +37,8 @@ export interface RunOptions {
   changedFiles: ChangedFile[];
   source: FileSource;
   commitMessage?: string;
+  /** The branch being committed to (pre-commit and commit-msg hooks); leaves branch-scope checks out when absent. */
+  branch?: string;
   pr?: PrInfo;
   /** Fingerprints from the repository's dated baseline (.qa/baseline.sarif). */
   baseline?: Set<string>;
@@ -86,6 +88,7 @@ function buildContext(opts: RunOptions): RunContext {
     tags,
     source: opts.source,
     commitMessage: opts.commitMessage,
+    branch: opts.branch,
     pr: opts.pr,
     filesFor(def: CheckDefinition): ChangedFile[] {
       let extra = extraMatchers.get(def.id);
@@ -116,6 +119,8 @@ function notApplicable(def: CheckDefinition, ctx: RunContext, opts: RunOptions):
   if (opts.scopes && !opts.scopes.includes(def.scope)) return `scope ${def.scope} is not part of this run`;
   if (opts.stages && !opts.stages.includes(def.stage)) return STAGE_RUNS[def.stage];
   switch (def.scope) {
+    case 'branch':
+      return ctx.branch === undefined ? 'runs in the pre-commit hook, on the branch being committed to' : undefined;
     case 'commit':
       return ctx.commitMessage === undefined ? 'no commit message in this run' : undefined;
     case 'pr':

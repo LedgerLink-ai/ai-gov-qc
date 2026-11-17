@@ -8,7 +8,7 @@ import { isWindows, qaHome, toolBinary } from './tools-home';
 // QA hooks run in every clone on the machine, old and new, with nothing
 // copied into any repository. Each script:
 //
-//   - for pre-commit, prepare-commit-msg and pre-push, hands over to
+//   - for pre-commit, prepare-commit-msg, commit-msg and pre-push, hands over to
 //     "qa hook <name>" (runHook below), which runs the repository's own
 //     .git/hooks/<name> and, in an opted-in LedgerLink-ai repository, the QA
 //     checks: from the repository's .pre-commit-config.yaml when it has one,
@@ -26,7 +26,7 @@ import { isWindows, qaHome, toolBinary } from './tools-home';
 export const MANAGED_MARKER = '# ledgerlink-qa managed hook v1';
 
 /** The hooks that run QA checks. */
-export const QA_HOOKS = ['pre-commit', 'prepare-commit-msg', 'pre-push'] as const;
+export const QA_HOOKS = ['pre-commit', 'prepare-commit-msg', 'commit-msg', 'pre-push'] as const;
 export type QaHook = (typeof QA_HOOKS)[number];
 
 /**
@@ -43,7 +43,6 @@ export const PASS_THROUGH_HOOKS = [
   'pre-applypatch',
   'post-applypatch',
   'pre-merge-commit',
-  'commit-msg',
   'post-commit',
   'pre-rebase',
   'post-checkout',
@@ -171,9 +170,18 @@ export function writeHookScripts(dir: string, qa: QaCommand = thisQa()): void {
   }
 }
 
-/** True when dir holds qa's scripts for the three QA hooks. */
+/** The line every QA hook script hands over to qa with; a pass-through script lacks it. */
+const HANDOVER = 'hook "$hook" "$@"';
+
+/**
+ * True when dir holds qa's scripts for every QA hook, each handing over to qa.
+ * An install from an older qa, where commit-msg only passed through, is not.
+ */
 export function hookScriptsInstalled(dir: string): boolean {
-  return QA_HOOKS.every((h) => isManaged(join(dir, h)));
+  return QA_HOOKS.every((h) => {
+    const file = join(dir, h);
+    return isManaged(file) && readFileSync(file, 'utf8').includes(HANDOVER);
+  });
 }
 
 /** Removes qa's scripts from dir, and dir itself when nothing else is left in it. */
@@ -198,6 +206,7 @@ export function sameDir(a: string, b: string, home = process.env.USERPROFILE ?? 
 const GATE_COMMAND: Record<QaHook, string> = {
   'pre-commit': 'precommit',
   'prepare-commit-msg': 'prepare-commit-msg',
+  'commit-msg': 'commit-msg',
   'pre-push': 'prepush',
 };
 
