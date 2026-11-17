@@ -4,7 +4,7 @@ repo: link_core
 actor: human
 as_of: 2027-01-08
 commit_message: |
-  chore(LCORE-212): tidy quote formatting
+  LCORE-212: Tidy quote formatting
 
   Assisted-by: Windsurf, swe-1, 1.12.0
 exact: true

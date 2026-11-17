@@ -3,7 +3,7 @@
 # not in those documents must never be added here (grounding rule G2). A check
 # that no capability ID covers names its `source` document instead.
 # Stages: 0 triage, 1 hygiene (seconds), 2 analysis and tests (minutes),
-# 3 the pull request as a whole. The pre-commit and commit-msg hooks run stages 0-1, the
+# 3 the pull request as a whole. The pre-commit hook runs stages 0-1, the
 # pre-push hook stage 2, "qa prepr" (before a pull request is opened) 0-3 on
 # everything the pull request contains, and CI all.
 version: 1
@@ -47,9 +47,9 @@ checks:
     controls: [C15-4]
     rules: [R11-6]
 
-  # The form of the Assisted-by trailer, in the commit-msg hook (report only)
-  # and with "qa check --commit-msg-file"; pr.commits applies it to every
-  # commit of a pull request.
+  # The form of the Assisted-by trailer. No hook runs it on a commit: the
+  # prepare-commit-msg hook only pre-fills the message, and pr.commits applies
+  # it to every commit of a pull request. Available to "qa check --commit-msg-file".
   - id: commit.trailer
     title: AI provenance trailer (form only)
     kind: native
@@ -58,30 +58,6 @@ checks:
     tags: all
     controls: [C11-2]
     rules: [R11-8]
-
-  # Ticket-based branch names and commit messages (AIQC-87). branch.ticket runs
-  # in the pre-commit hook on the branch being committed to; commit.message in
-  # the commit-msg hook, and with "qa check --commit-msg-file". The ticket key
-  # is read from the branch, never trusted from the message.
-  - id: branch.ticket
-    title: Branch name carries a valid ticket key ("<type>/<TICKET-123>-<description>")
-    kind: native
-    stage: 1
-    scope: branch
-    tags: all
-    controls: []
-    rules: []
-    source: AIQC-87, ticket-based branch naming (GitHub issue 10)
-
-  - id: commit.message
-    title: 'Commit subject follows the convention ("<type>(<TICKET-123>): <description>") with the branch''s ticket'
-    kind: native
-    stage: 1
-    scope: commit
-    tags: all
-    controls: []
-    rules: []
-    source: AIQC-87, commit message generation (GitHub issue 10)
 
   - id: sast.semgrep
     title: Fast Semgrep rule set (money types)
@@ -94,7 +70,7 @@ checks:
     rules: []
 
   - id: pr.branch-name
-    title: Branch name follows the ticket-based convention, not the base branch itself
+    title: Branch name carries a ticket key (recommended), not the base branch itself
     kind: native
     stage: 3
     scope: pr
@@ -112,16 +88,6 @@ checks:
     controls: [C11-2]
     rules: [R11-8]
 
-  - id: pr.commit-messages
-    title: Every commit subject in the pull request follows the convention with the branch's ticket
-    kind: native
-    stage: 3
-    scope: pr
-    tags: all
-    controls: []
-    rules: []
-    source: AIQC-87, commit message generation (GitHub issue 10)
-
   - id: pr.diff-size
     title: Pull request size
     kind: native
@@ -131,36 +97,6 @@ checks:
     controls: []
     rules: []
     source: Local checkpoints, stage 3 pre-PR (PR-specific checks)
-
-  - id: pr.title
-    title: 'Pull request title follows the convention ("<TICKET-123>: <description>" by default)'
-    kind: native
-    stage: 3
-    scope: pr-text
-    tags: all
-    controls: []
-    rules: []
-    source: AIQC-86, pull request conventions (GitHub issue 16)
-
-  - id: pr.ticket
-    title: Pull request references a ticket from an accepted project, linked to the ticket site
-    kind: native
-    stage: 3
-    scope: pr-text
-    tags: all
-    controls: []
-    rules: []
-    source: AIQC-86, pull request conventions (GitHub issue 16)
-
-  - id: pr.description
-    title: Pull request description follows the template, every required section filled in
-    kind: native
-    stage: 3
-    scope: pr-text
-    tags: all
-    controls: []
-    rules: []
-    source: AIQC-86, pull request conventions (GitHub issue 16)
 
   - id: tests.coverage
     title: Line coverage threshold
