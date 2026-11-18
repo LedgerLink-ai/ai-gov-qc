@@ -89,8 +89,8 @@ repos:
         types_or: [ts, tsx, javascript, jsx]
         require_serial: true
         verbose: true
-      # Gitleaks on staged changes (default rules plus blockchain private keys
-      # and BIP39 mnemonics); agent instruction files scanned for hidden
+      # Gitleaks on staged changes (default rules plus blockchain private keys,
+      # BIP39 mnemonics, npm registry credentials and CodeArtifact tokens); agent instruction files scanned for hidden
       # Unicode, bidirectional characters and control-weakening text; MCP
       # allowlist; protected paths; a ticket key in the branch name.
       - id: qa-precommit
