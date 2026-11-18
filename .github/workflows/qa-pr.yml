@@ -90,7 +90,7 @@ jobs:
             echo "::error::Pull requests from forks ($HEAD_REPO) are not checked; push the branch to $GITHUB_REPOSITORY and open the pull request from there."
             exit 1
           fi
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # The pull request's own head commit (not the merge commit), with
           # history, so qa sees the real commits and the merge base.
