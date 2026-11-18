@@ -24,6 +24,20 @@ interface GitleaksResult {
 
 const binary = (): string => toolBinary('gitleaks');
 
+/**
+ * The kind of secret in plain words, from Gitleaks' rule description
+ * ("Uncovered a GitHub Personal Access Token, potentially leading to ..." gives
+ * "GitHub Personal Access Token"); the rule id when there is no description.
+ */
+export function secretKind(r: Pick<GitleaksResult, 'RuleID' | 'Description'>): string {
+  const kind = (r.Description ?? '')
+    .replace(/^(?:uncovered|detected|discovered|identified|found|identifies|detects)\s+(?:an?\s+|the\s+)?/i, '')
+    .split(/,|\s+(?:potentially|which|that could|allowing|that may|exposing)\s/i)[0]
+    .replace(/[.\s]+$/, '')
+    .trim();
+  return kind || r.RuleID;
+}
+
 const version = cachedVersion(() => {
   const res = spawnSync(binary(), ['version'], {
     encoding: 'utf8',
@@ -77,7 +91,7 @@ async function run(ctx: RunContext, def: CheckDefinition, files: ChangedFile[]):
         path,
         line: r.StartLine,
         column: r.StartColumn,
-        message: `Possible secret (${r.RuleID}${r.Description ? `: ${r.Description}` : ''}). The value is not shown.`,
+        message: `Possible secret: ${secretKind(r)} (${r.RuleID}). The value is not shown.`,
         fixHint: 'Remove the value, rotate the credential (R22-10) and load it from the secrets manager.',
         fingerprintBasis: `${r.RuleID}:${r.StartLine ?? 0}`,
       };

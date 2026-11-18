@@ -23,7 +23,7 @@ permissions:
 jobs:
   qa:
     # Pin to the commit of the qa release (git rev-list -n 1 v<version>), not a branch.
-    uses: LedgerLink-ai/ai-gov-qc/.github/workflows/qa-pr.yml@v0.2.3
+    uses: LedgerLink-ai/ai-gov-qc/.github/workflows/qa-pr.yml@v0.2.4
     with:
-      qa-version: '0.2.3'
+      qa-version: '0.2.4'
     secrets: inherit
