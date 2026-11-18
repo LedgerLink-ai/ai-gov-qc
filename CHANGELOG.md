@@ -1,7 +1,8 @@
 # Changelog
 
 Every release of `@ledgerlink/qa` (`ledgerlink-qa-<version>.tgz`). The section
-for a version is its GitHub release notes (`node scripts/release.js --notes <version>`),
+for a version is the "What's new" part of its GitHub release notes
+(`templates/release-notes.md`, `node scripts/release.js --notes <version>`),
 and `node scripts/release.js --check` fails a release without one.
 
 Versions follow semantic versioning. Below 1.0, a minor version is a major one:
