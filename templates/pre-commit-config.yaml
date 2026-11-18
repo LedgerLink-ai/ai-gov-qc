@@ -8,13 +8,13 @@
 # .pre-commit-config.yaml only to change what runs there (that copy then wins).
 #
 # Once per machine (Windows, macOS or Linux; Node 20+, git, Python 3.11 to 3.14):
-#   npm install -g @ledgerlink/qa@0.2.3     (or the full path to ledgerlink-qa-0.2.3.tgz)
+#   npm install -g @ledgerlink/qa@0.2.4     (or the full path to ledgerlink-qa-0.2.4.tgz)
 #   qa setup                                (pre-commit, Semgrep, Gitleaks, and the hooks for every repository)
 #   git config --global ledgerlink.assistedBy "<tool>, <model>, <version>"   ("none" without AI tools)
 # Every repository on the machine, cloned before or after, is then connected.
 # Check one with: qa doctor
 #
-# The qa hooks call the qa installed on the machine. "--require 0.2.3" pins the
+# The qa hooks call the qa installed on the machine. "--require 0.2.4" pins the
 # version: a machine with an incompatible qa stops with install instructions.
 #
 # Three checkpoints:
@@ -77,25 +77,23 @@ repos:
       # place: re-stage and commit.
       - id: repo-prettier
         name: prettier (repository version)
-        entry: qa --require 0.2.3 repo-tool prettier --write --ignore-unknown --log-level warn
+        entry: qa --require 0.2.4 repo-tool prettier --write --ignore-unknown --log-level warn
         language: system
         types_or: [ts, tsx, javascript, jsx]
         require_serial: true
-        verbose: true
       - id: repo-eslint
         name: eslint (repository version)
-        entry: qa --require 0.2.3 repo-tool eslint --fix --no-warn-ignored
+        entry: qa --require 0.2.4 repo-tool eslint --fix --no-warn-ignored
         language: system
         types_or: [ts, tsx, javascript, jsx]
         require_serial: true
-        verbose: true
       # Gitleaks on staged changes (default rules plus blockchain private keys
       # and BIP39 mnemonics); agent instruction files scanned for hidden
       # Unicode, bidirectional characters and control-weakening text; MCP
       # allowlist; protected paths; a ticket key in the branch name.
       - id: qa-precommit
         name: 'qa: secrets, agent instruction files, MCP allowlist, protected paths, branch name'
-        entry: qa --require 0.2.3 precommit --quiet
+        entry: qa --require 0.2.4 precommit --quiet
         language: system
         pass_filenames: false
         always_run: true
@@ -106,7 +104,7 @@ repos:
       # Assisted-by. Never rejects a commit; it prints what it added.
       - id: qa-prepare-commit-msg
         name: 'qa: pre-fill ticket key and Assisted-by'
-        entry: qa --require 0.2.3 prepare-commit-msg
+        entry: qa --require 0.2.4 prepare-commit-msg
         language: system
         verbose: true
         stages: [prepare-commit-msg]
@@ -114,7 +112,7 @@ repos:
       # branch's ticket; the Assisted-by form.
       - id: qa-commit-msg
         name: 'qa: commit message (ticket from the branch, Assisted-by form)'
-        entry: qa --require 0.2.3 commit-msg --quiet
+        entry: qa --require 0.2.4 commit-msg --quiet
         language: system
         require_serial: true
         verbose: true
@@ -123,39 +121,36 @@ repos:
       # ---- Stage 2: pre-push (30-90 s) ----
       - id: unit-tests
         name: unit tests
-        entry: qa --require 0.2.3 repo-script test
+        entry: qa --require 0.2.4 repo-script test
         language: system
         pass_filenames: false
         always_run: true
-        verbose: true
         stages: [pre-push]
       - id: typecheck
         name: type check
-        entry: qa --require 0.2.3 repo-tool typescript:tsc --noEmit
+        entry: qa --require 0.2.4 repo-tool typescript:tsc --noEmit
         language: system
         pass_filenames: false
         always_run: true
-        verbose: true
         stages: [pre-push]
       - id: build-check
         name: build verification
-        entry: qa --require 0.2.3 repo-script build
+        entry: qa --require 0.2.4 repo-script build
         language: system
         pass_filenames: false
         always_run: true
-        verbose: true
         stages: [pre-push]
       # Optional: dependency and vulnerability check (CI runs OSV-Scanner).
       # - id: audit
       #   name: dependency audit
-      #   entry: qa --require 0.2.3 repo-script audit
+      #   entry: qa --require 0.2.4 repo-script audit
       #   language: system
       #   pass_filenames: false
       #   always_run: true
       #   stages: [pre-push]
       - id: qa-prepush
         name: 'qa: fast Semgrep rule set'
-        entry: qa --require 0.2.3 prepush --quiet
+        entry: qa --require 0.2.4 prepush --quiet
         language: system
         pass_filenames: false
         always_run: true
@@ -166,11 +161,10 @@ repos:
       # ---- Stage 3: pre-PR (1-3 min), "pre-commit run --hook-stage manual --all-files" ----
       - id: lint-all
         name: full lint
-        entry: qa --require 0.2.3 repo-tool eslint .
+        entry: qa --require 0.2.4 repo-tool eslint .
         language: system
         pass_filenames: false
         always_run: true
-        verbose: true
         stages: [manual]
       # Formatting of every file the pull request changes: files that were
       # already unformatted before it do not block it. Line endings are left
@@ -178,36 +172,33 @@ repos:
       # repository that is fully formatted, "repo-tool prettier --check ." checks all.
       - id: format-pr
         name: formatting check (pull request files)
-        entry: qa --require 0.2.3 repo-tool --pr-files prettier --check --ignore-unknown --end-of-line auto
+        entry: qa --require 0.2.4 repo-tool --pr-files prettier --check --ignore-unknown --end-of-line auto
         language: system
         pass_filenames: false
         always_run: true
-        verbose: true
         stages: [manual]
       # The full suite, writing an Istanbul json-summary coverage file (c8,
       # nyc, Jest or Vitest) to coverage/coverage-summary.json.
       - id: test-coverage
         name: full test suite with coverage
-        entry: qa --require 0.2.3 repo-script test:coverage
+        entry: qa --require 0.2.4 repo-script test:coverage
         language: system
         pass_filenames: false
         always_run: true
-        verbose: true
         stages: [manual]
       - id: build
         name: build
-        entry: qa --require 0.2.3 repo-script build
+        entry: qa --require 0.2.4 repo-script build
         language: system
         pass_filenames: false
         always_run: true
-        verbose: true
         stages: [manual]
       # Last, so it can read the coverage summary: branch name, every commit
       # message, diff size, coverage threshold (reports only for now), and
       # every qa check again on the whole change since the base branch.
       - id: qa-prepr
         name: 'qa: pull request checks (branch, commits, size, coverage) and every stage on the full change'
-        entry: qa --require 0.2.3 prepr
+        entry: qa --require 0.2.4 prepr
         language: system
         pass_filenames: false
         always_run: true

@@ -31,7 +31,7 @@ on:
       qa-version:
         description: The qa release to run. Pinned; roll back by naming an earlier release.
         type: string
-        default: '0.2.3'
+        default: '0.2.4'
       qa-repository:
         description: Where qa is released.
         type: string
@@ -69,7 +69,7 @@ jobs:
       contents: read
       security-events: write # upload SARIF to code scanning
     env:
-      QA_VERSION: ${{ inputs.qa-version || '0.2.3' }}
+      QA_VERSION: ${{ inputs.qa-version || '0.2.4' }}
       QA_REPOSITORY: ${{ inputs.qa-repository || 'LedgerLink-ai/ai-gov-qc' }}
       QA_LOG_FORMAT: json
     steps:
