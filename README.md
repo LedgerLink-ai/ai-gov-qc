@@ -110,7 +110,7 @@ Run `qa doctor` inside a LedgerLink-ai repository. To remove qa, run `qa setup -
 
   Also done: the execution gate, hooks for every repository, the package with automatic releases, and the production hardening (issue #15).
 
-- **Not enabled yet:** the pull request gate. `.github/workflows/qa-pr.yml` ships, but no repository requires it yet, so pull requests are not checked by qa in CI. Until then, the checks run on developers' machines, and local hooks can be skipped with `--no-verify` ([docs/ENFORCEMENT.md](docs/ENFORCEMENT.md)).
+- **Not enabled yet:** the pull request gate. `.github/workflows/qa-pr.yml` ships, but no repository requires it yet, so pull requests are not checked by qa in CI. Until then, the checks run only on developers' machines, where they cannot be enforced; [docs/ENFORCEMENT.md](docs/ENFORCEMENT.md) explains the limits of local hooks.
 - **Not built yet:** the MCP server, `qa init` and the onboarding and offboarding commands (issue #14).
 
 ## Development
