@@ -1,0 +1,8 @@
+id: F18
+title: npm and Yarn registry credentials read from the environment are not reported (AIQC-89, false-positive guard)
+repo: link_core
+actor: human
+as_of: 2027-01-08
+requires: [gitleaks]
+exact: true
+expect: []

@@ -36,7 +36,8 @@ const version = cachedVersion(() => {
 
 /**
  * Scans exactly the changed files with LedgerLink's rules (config/gitleaks.toml:
- * the default rules plus private keys and BIP39 mnemonics), with redaction on.
+ * the default rules plus private keys, BIP39 mnemonics, npm registry credentials
+ * and CodeArtifact tokens), with redaction on.
  */
 async function run(ctx: RunContext, def: CheckDefinition, files: ChangedFile[]): Promise<Finding[]> {
   if (!version())

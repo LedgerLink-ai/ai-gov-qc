@@ -9,6 +9,21 @@ Versions follow semantic versioning. Below 1.0, a minor version is a major one:
 that a repository pinned to an earlier compatible version can install without
 changing its hooks.
 
+## 0.2.4
+
+Secrets: npm registry credentials and AWS CodeArtifact tokens (AIQC-89)
+
+- Fix: an AWS CodeArtifact token in `.npmrc` (`_authToken=...`) was not
+  reported. Gitleaks' default generic rule only matches values of up to 150
+  characters, or longer values made only of letters, digits, `+` and `/`; a
+  CodeArtifact token is about 1,000 characters long and contains `.`, `-` and
+  `_`.
+- New rule `npm-registry-credential`: `_authToken`, `_auth` and `_password` in
+  `.npmrc`, and `npmAuthToken` / `npmAuthIdent` in `.yarnrc` / `.yarnrc.yml`,
+  whatever the value's length or characters. Values read from the environment
+  (`${NPM_TOKEN}`) are not reported.
+- New rule `aws-codeartifact-token`: a CodeArtifact token in any file.
+
 ## 0.2.3
 
 Upgrading from 0.2.2
