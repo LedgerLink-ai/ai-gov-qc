@@ -10,7 +10,7 @@ import { clearCache, cacheDir, openCache } from './cache';
 import { loadAllowlist, loadConfig, locateConfig } from './config';
 import { envMs } from './exec';
 import { configSourceProblem, gate, isWithin } from './gate';
-import { runConformance, unavailableTools } from './conform';
+import { conformExitCode, runConformance, unavailableTools } from './conform';
 import { createLogger, logger, parseLogSettings, setLogger } from './log';
 import { today } from './policy';
 import { aiDeclaredCommits, ciCoverage } from './pr-gate';
@@ -105,7 +105,9 @@ Usage:
   qa baseline   [selection] [options]   Record current findings in .qa/baseline.sarif (they then report, not block)
   qa rules      <path>... [options]     Tags, checks, controls and approvals for these paths
   qa validate   [--config <dir>]        Validate the registries and their cross-references
-  qa conform    [--config <dir>]        Run the conformance fixtures through the API and CLI paths
+  qa conform    [--config <dir>] [--require-all]
+                                        Run the conformance fixtures through the API and CLI paths;
+                                        --require-all fails on a skipped or pending fixture (CI)
   qa cache      clear | path            Remove or show the local scanner result cache
   qa version
 
@@ -222,6 +224,7 @@ const BOOLEAN_FLAGS = new Set([
   'no-global-hooks',
   'uninstall',
   'no-cache',
+  'require-all',
 ]);
 
 export function parseArgs(argv: string[]): { command: string; positionals: string[]; flags: Flags } {
@@ -929,7 +932,7 @@ async function conform(flags: Flags): Promise<number> {
   print(
     `conformance: ${count('pass')} pass, ${count('fail')} fail, ${count('skip')} skipped, ${count('pending')} pending`,
   );
-  return count('fail') > 0 ? 1 : 0;
+  return conformExitCode(results, flags['require-all'] === true);
 }
 
 /**
