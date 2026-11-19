@@ -25,6 +25,11 @@ import { CONFIG_DIR } from './helpers';
 
 const posix = (p: string): string => p.replace(/\\/g, '/');
 const QA = { node: process.execPath, script: QA_BIN };
+// Hooks run pre-commit, which can take minutes on a loaded machine the first
+// time (it builds its environments); a git command is stopped only well after
+// that, and each test waits longer still. QA_TEST_GIT_TIMEOUT_MS overrides.
+const GIT_TIMEOUT_MS = Number(process.env.QA_TEST_GIT_TIMEOUT_MS) || 420_000;
+const TEST_TIMEOUT_MS = 3 * GIT_TIMEOUT_MS;
 
 describe('hook scripts', () => {
   let dir: string;
@@ -162,7 +167,8 @@ describeHooks('commits and pushes through the hooks for every repository', () =>
     light = true,
   ): { dir: string; git: (...a: string[]) => ReturnType<typeof spawnSync> } {
     const dir = mkdtempSync(join(work, 'repo-'));
-    const git = (...args: string[]) => spawnSync('git', args, { cwd: dir, env, encoding: 'utf8', timeout: 180_000 });
+    const git = (...args: string[]) =>
+      spawnSync('git', args, { cwd: dir, env, encoding: 'utf8', timeout: GIT_TIMEOUT_MS });
     execFileSync('git', ['init', '-q', '--template=', '-b', branch], { cwd: dir, env });
     for (const [k, v] of [
       ['user.email', 'test@example.invalid'],
@@ -196,173 +202,217 @@ describeHooks('commits and pushes through the hooks for every repository', () =>
     return marker;
   }
 
-  it('runs the default checks in an opted-in repository with no hook configuration of its own', () => {
-    const repo = clone(LEDGERLINK, 'main', false);
-    writeFileSync(join(repo.dir, 'notes.md'), 'hello\n');
-    repo.git('add', '.');
-    const ok = repo.git('commit', '-m', 'Add notes');
-    expect(ok.status).toBe(0);
-    expect(out(ok)).toContain('qa: secrets, agent instruction files');
+  it(
+    'runs the default checks in an opted-in repository with no hook configuration of its own',
+    () => {
+      const repo = clone(LEDGERLINK, 'main', false);
+      writeFileSync(join(repo.dir, 'notes.md'), 'hello\n');
+      repo.git('add', '.');
+      const ok = repo.git('commit', '-m', 'Add notes');
+      expect(ok.status).toBe(0);
+      expect(out(ok)).toContain('qa: secrets, agent instruction files');
 
-    writeFileSync(join(repo.dir, 'AGENTS.md'), HIDDEN);
-    repo.git('add', '.');
-    const blocked = repo.git('commit', '-m', 'Add agent instructions');
-    expect(blocked.status).not.toBe(0);
-    expect(out(blocked)).toContain('ai-config.content-lint');
-    expect(existsSync(join(repo.dir, '.pre-commit-config.yaml'))).toBe(false);
-  }, 300_000);
+      writeFileSync(join(repo.dir, 'AGENTS.md'), HIDDEN);
+      repo.git('add', '.');
+      const blocked = repo.git('commit', '-m', 'Add agent instructions');
+      expect(blocked.status).not.toBe(0);
+      expect(out(blocked)).toContain('ai-config.content-lint');
+      expect(existsSync(join(repo.dir, '.pre-commit-config.yaml'))).toBe(false);
+    },
+    TEST_TIMEOUT_MS,
+  );
 
-  it("uses the repository's own .pre-commit-config.yaml when it has one", () => {
-    const repo = clone(LEDGERLINK, 'main', false);
-    writeFileSync(
-      join(repo.dir, '.pre-commit-config.yaml'),
-      [
-        'repos:',
-        '  - repo: local',
-        '    hooks:',
-        '      - id: own-config',
-        '        name: the repository configuration ran',
-        '        entry: qa precommit --quiet',
-        '        language: system',
-        '        pass_filenames: false',
-        '        always_run: true',
-        '',
-      ].join('\n'),
-    );
-    repo.git('add', '.');
-    const res = repo.git('commit', '-m', 'Add hook configuration');
-    expect(res.status).toBe(0);
-    expect(out(res)).toContain('the repository configuration ran');
-    expect(out(res)).not.toContain('qa: secrets, agent instruction files');
-  }, 300_000);
+  it(
+    "uses the repository's own .pre-commit-config.yaml when it has one",
+    () => {
+      const repo = clone(LEDGERLINK, 'main', false);
+      writeFileSync(
+        join(repo.dir, '.pre-commit-config.yaml'),
+        [
+          'repos:',
+          '  - repo: local',
+          '    hooks:',
+          '      - id: own-config',
+          '        name: the repository configuration ran',
+          '        entry: qa precommit --quiet',
+          '        language: system',
+          '        pass_filenames: false',
+          '        always_run: true',
+          '',
+        ].join('\n'),
+      );
+      repo.git('add', '.');
+      const res = repo.git('commit', '-m', 'Add hook configuration');
+      expect(res.status).toBe(0);
+      expect(out(res)).toContain('the repository configuration ran');
+      expect(out(res)).not.toContain('qa: secrets, agent instruction files');
+    },
+    TEST_TIMEOUT_MS,
+  );
 
-  it('does nothing in a personal repository except its own hooks', () => {
-    const repo = clone(PERSONAL);
-    const marker = ownHook(repo.dir, 'pre-commit');
-    writeFileSync(join(repo.dir, 'AGENTS.md'), HIDDEN);
-    repo.git('add', '.');
-    const res = repo.git('commit', '-m', 'Add agent instructions');
-    expect(res.status).toBe(0);
-    expect(out(res)).not.toContain('content-lint');
-    expect(existsSync(marker)).toBe(true);
-  }, 120_000);
+  it(
+    'does nothing in a personal repository except its own hooks',
+    () => {
+      const repo = clone(PERSONAL);
+      const marker = ownHook(repo.dir, 'pre-commit');
+      writeFileSync(join(repo.dir, 'AGENTS.md'), HIDDEN);
+      repo.git('add', '.');
+      const res = repo.git('commit', '-m', 'Add agent instructions');
+      expect(res.status).toBe(0);
+      expect(out(res)).not.toContain('content-lint');
+      expect(existsSync(marker)).toBe(true);
+    },
+    TEST_TIMEOUT_MS,
+  );
 
-  it("runs the repository's own hook first, and its failure stops the commit", () => {
-    const repo = clone(LEDGERLINK);
-    const marker = ownHook(repo.dir, 'pre-commit');
-    writeFileSync(join(repo.dir, 'a.md'), 'a\n');
-    repo.git('add', '.');
-    expect(repo.git('commit', '-m', 'Add a').status).toBe(0);
-    expect(existsSync(marker)).toBe(true);
+  it(
+    "runs the repository's own hook first, and its failure stops the commit",
+    () => {
+      const repo = clone(LEDGERLINK);
+      const marker = ownHook(repo.dir, 'pre-commit');
+      writeFileSync(join(repo.dir, 'a.md'), 'a\n');
+      repo.git('add', '.');
+      expect(repo.git('commit', '-m', 'Add a').status).toBe(0);
+      expect(existsSync(marker)).toBe(true);
 
-    ownHook(repo.dir, 'pre-commit', 1, 'echo "own hook says no" >&2');
-    writeFileSync(join(repo.dir, 'b.md'), 'b\n');
-    repo.git('add', '.');
-    const res = repo.git('commit', '-m', 'Add b');
-    expect(res.status).not.toBe(0);
-    expect(out(res)).toContain('own hook says no');
-  }, 300_000);
+      ownHook(repo.dir, 'pre-commit', 1, 'echo "own hook says no" >&2');
+      writeFileSync(join(repo.dir, 'b.md'), 'b\n');
+      repo.git('add', '.');
+      const res = repo.git('commit', '-m', 'Add b');
+      expect(res.status).not.toBe(0);
+      expect(out(res)).toContain('own hook says no');
+    },
+    TEST_TIMEOUT_MS,
+  );
 
-  it("skips pre-commit's own scripts in opted-in repositories, so the checks do not run twice", () => {
-    const repo = clone(LEDGERLINK);
-    const marker = ownHook(repo.dir, 'pre-commit', 0, '# File generated by pre-commit: https://pre-commit.com');
-    writeFileSync(join(repo.dir, 'c.md'), 'c\n');
-    repo.git('add', '.');
-    expect(repo.git('commit', '-m', 'Add c').status).toBe(0);
-    expect(existsSync(marker)).toBe(false);
-  }, 300_000);
+  it(
+    "skips pre-commit's own scripts in opted-in repositories, so the checks do not run twice",
+    () => {
+      const repo = clone(LEDGERLINK);
+      const marker = ownHook(repo.dir, 'pre-commit', 0, '# File generated by pre-commit: https://pre-commit.com');
+      writeFileSync(join(repo.dir, 'c.md'), 'c\n');
+      repo.git('add', '.');
+      expect(repo.git('commit', '-m', 'Add c').status).toBe(0);
+      expect(existsSync(marker)).toBe(false);
+    },
+    TEST_TIMEOUT_MS,
+  );
 
-  it("runs the repository's own hook with the interpreter its #! line names", () => {
-    const repo = clone(PERSONAL);
-    const marker = join(repo.dir, '.git', 'node-hook.ran');
-    const file = join(repo.dir, '.git', 'hooks', 'pre-commit');
-    mkdirSync(join(repo.dir, '.git', 'hooks'), { recursive: true });
-    writeFileSync(
-      file,
-      `#!/usr/bin/env node\nrequire('fs').writeFileSync(${JSON.stringify(posix(marker))}, 'node');\n`,
-    );
-    chmodSync(file, 0o755);
-    writeFileSync(join(repo.dir, 'n.md'), 'n\n');
-    repo.git('add', '.');
-    const res = repo.git('commit', '-m', 'Add n');
-    expect(out(res)).not.toMatch(/syntax error|not found/);
-    expect(res.status).toBe(0);
-    expect(readFileSync(marker, 'utf8')).toBe('node');
-  }, 120_000);
+  it(
+    "runs the repository's own hook with the interpreter its #! line names",
+    () => {
+      const repo = clone(PERSONAL);
+      const marker = join(repo.dir, '.git', 'node-hook.ran');
+      const file = join(repo.dir, '.git', 'hooks', 'pre-commit');
+      mkdirSync(join(repo.dir, '.git', 'hooks'), { recursive: true });
+      writeFileSync(
+        file,
+        `#!/usr/bin/env node\nrequire('fs').writeFileSync(${JSON.stringify(posix(marker))}, 'node');\n`,
+      );
+      chmodSync(file, 0o755);
+      writeFileSync(join(repo.dir, 'n.md'), 'n\n');
+      repo.git('add', '.');
+      const res = repo.git('commit', '-m', 'Add n');
+      expect(out(res)).not.toMatch(/syntax error|not found/);
+      expect(res.status).toBe(0);
+      expect(readFileSync(marker, 'utf8')).toBe('node');
+    },
+    TEST_TIMEOUT_MS,
+  );
 
-  it('does not run the own hook again when git ran it and it calls qa hook (core.hooksPath=.git/hooks)', () => {
-    const repo = clone(LEDGERLINK);
-    repo.git('config', 'core.hooksPath', '.git/hooks');
-    mkdirSync(join(repo.dir, '.git', 'hooks'), { recursive: true });
-    const file = join(repo.dir, '.git', 'hooks', 'pre-commit');
-    writeFileSync(file, '#!/bin/sh\nqa hook pre-commit "$@"\n');
-    chmodSync(file, 0o755);
-    writeFileSync(join(repo.dir, 'AGENTS.md'), HIDDEN);
-    repo.git('add', '.');
-    const res = spawnSync('git', ['commit', '-m', 'Add agent instructions'], {
-      cwd: repo.dir,
-      env,
-      encoding: 'utf8',
-      timeout: 120_000,
-    });
-    expect(res.error).toBeUndefined();
-    expect(res.status).not.toBe(0);
-    expect(out(res)).toContain('ai-config.content-lint');
-  }, 180_000);
+  it(
+    'does not run the own hook again when git ran it and it calls qa hook (core.hooksPath=.git/hooks)',
+    () => {
+      const repo = clone(LEDGERLINK);
+      repo.git('config', 'core.hooksPath', '.git/hooks');
+      mkdirSync(join(repo.dir, '.git', 'hooks'), { recursive: true });
+      const file = join(repo.dir, '.git', 'hooks', 'pre-commit');
+      writeFileSync(file, '#!/bin/sh\nqa hook pre-commit "$@"\n');
+      chmodSync(file, 0o755);
+      writeFileSync(join(repo.dir, 'AGENTS.md'), HIDDEN);
+      repo.git('add', '.');
+      const res = spawnSync('git', ['commit', '-m', 'Add agent instructions'], {
+        cwd: repo.dir,
+        env,
+        encoding: 'utf8',
+        timeout: GIT_TIMEOUT_MS,
+      });
+      expect(res.error).toBeUndefined();
+      expect(res.status).not.toBe(0);
+      expect(out(res)).toContain('ai-config.content-lint');
+    },
+    TEST_TIMEOUT_MS,
+  );
 
-  it('passes every other hook to the repository (Git LFS and the like keep working)', () => {
-    const repo = clone(PERSONAL);
-    const marker = ownHook(repo.dir, 'post-commit');
-    writeFileSync(join(repo.dir, 'd.md'), 'd\n');
-    repo.git('add', '.');
-    expect(repo.git('commit', '-m', 'Add d').status).toBe(0);
-    expect(existsSync(marker)).toBe(true);
-  }, 120_000);
+  it(
+    'passes every other hook to the repository (Git LFS and the like keep working)',
+    () => {
+      const repo = clone(PERSONAL);
+      const marker = ownHook(repo.dir, 'post-commit');
+      writeFileSync(join(repo.dir, 'd.md'), 'd\n');
+      repo.git('add', '.');
+      expect(repo.git('commit', '-m', 'Add d').status).toBe(0);
+      expect(existsSync(marker)).toBe(true);
+    },
+    TEST_TIMEOUT_MS,
+  );
 
-  it("gives the repository's own pre-push hook the refs being pushed", () => {
-    const repo = clone(LEDGERLINK);
-    const marker = ownHook(repo.dir, 'pre-push');
-    const remote = mkdtempSync(join(work, 'remote-'));
-    execFileSync('git', ['init', '-q', '--bare', '--template=', remote], { env });
-    repo.git('remote', 'add', 'backup', remote);
-    const res = repo.git('push', '-q', 'backup', 'main');
-    expect(res.status).toBe(0);
-    expect(readFileSync(marker, 'utf8')).toMatch(/^refs\/heads\/main [0-9a-f]{40} refs\/heads\/main /);
-  }, 300_000);
+  it(
+    "gives the repository's own pre-push hook the refs being pushed",
+    () => {
+      const repo = clone(LEDGERLINK);
+      const marker = ownHook(repo.dir, 'pre-push');
+      const remote = mkdtempSync(join(work, 'remote-'));
+      execFileSync('git', ['init', '-q', '--bare', '--template=', remote], { env });
+      repo.git('remote', 'add', 'backup', remote);
+      const res = repo.git('push', '-q', 'backup', 'main');
+      expect(res.status).toBe(0);
+      expect(readFileSync(marker, 'utf8')).toMatch(/^refs\/heads\/main [0-9a-f]{40} refs\/heads\/main /);
+    },
+    TEST_TIMEOUT_MS,
+  );
 
-  it('pre-fills the type and ticket key from the branch name', () => {
-    const repo = clone(LEDGERLINK, 'feature/LCORE-212-refund-key');
-    writeFileSync(join(repo.dir, 'e.md'), 'e\n');
-    repo.git('add', '.');
-    expect(repo.git('commit', '-m', 'Add refund key').status).toBe(0);
-    expect(String(repo.git('log', '-1', '--format=%s').stdout).trim()).toBe('feat(LCORE-212): Add refund key');
-  }, 300_000);
+  it(
+    'pre-fills the type and ticket key from the branch name',
+    () => {
+      const repo = clone(LEDGERLINK, 'feature/LCORE-212-refund-key');
+      writeFileSync(join(repo.dir, 'e.md'), 'e\n');
+      repo.git('add', '.');
+      expect(repo.git('commit', '-m', 'Add refund key').status).toBe(0);
+      expect(String(repo.git('log', '-1', '--format=%s').stdout).trim()).toBe('feat(LCORE-212): Add refund key');
+    },
+    TEST_TIMEOUT_MS,
+  );
 
-  it('lets commits through, with a warning, when qa is no longer installed', () => {
-    const gone = join(work, 'gone-hooks');
-    writeHookScripts(gone, { node: join(work, 'no-such-node'), script: join(work, 'no-such-qa.js') });
-    const repo = clone(LEDGERLINK);
-    repo.git('config', 'core.hooksPath', posix(gone));
-    const marker = ownHook(repo.dir, 'pre-commit');
-    writeFileSync(join(repo.dir, 'AGENTS.md'), HIDDEN);
-    repo.git('add', '.');
-    // PATH without any qa on it.
-    const noQa = { ...env };
-    const path = Object.keys(noQa).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
-    const sep = process.platform === 'win32' ? ';' : ':';
-    noQa[path] = (noQa[path] ?? '')
-      .split(sep)
-      .filter((d) => d && !['qa', 'qa.cmd', 'qa.exe'].some((n) => existsSync(join(d, n))))
-      .join(sep);
-    const res = spawnSync('git', ['commit', '-m', 'Add agent instructions'], {
-      cwd: repo.dir,
-      env: noQa,
-      encoding: 'utf8',
-    });
-    expect(res.status).toBe(0);
-    expect(out(res)).toContain('the LedgerLink QA engine was not found');
-    expect(existsSync(marker)).toBe(true);
-  }, 120_000);
+  it(
+    'lets commits through, with a warning, when qa is no longer installed',
+    () => {
+      const gone = join(work, 'gone-hooks');
+      writeHookScripts(gone, { node: join(work, 'no-such-node'), script: join(work, 'no-such-qa.js') });
+      const repo = clone(LEDGERLINK);
+      repo.git('config', 'core.hooksPath', posix(gone));
+      const marker = ownHook(repo.dir, 'pre-commit');
+      writeFileSync(join(repo.dir, 'AGENTS.md'), HIDDEN);
+      repo.git('add', '.');
+      // PATH without any qa on it.
+      const noQa = { ...env };
+      const path = Object.keys(noQa).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
+      const sep = process.platform === 'win32' ? ';' : ':';
+      noQa[path] = (noQa[path] ?? '')
+        .split(sep)
+        .filter((d) => d && !['qa', 'qa.cmd', 'qa.exe'].some((n) => existsSync(join(d, n))))
+        .join(sep);
+      const res = spawnSync('git', ['commit', '-m', 'Add agent instructions'], {
+        cwd: repo.dir,
+        env: noQa,
+        encoding: 'utf8',
+      });
+      expect(res.status).toBe(0);
+      expect(out(res)).toContain('the LedgerLink QA engine was not found');
+      expect(existsSync(marker)).toBe(true);
+    },
+    TEST_TIMEOUT_MS,
+  );
 });
 
 describeBuilt('qa setup and qa doctor with the hooks for every repository', () => {

@@ -5,6 +5,9 @@
   "type": "object",
   "additionalProperties": false,
   "required": ["id", "title", "repo", "actor", "expect"],
+  "definitions": {
+    "path": { "type": "string", "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!.*(^|/)\\.\\.(/|$)).+$" }
+  },
   "properties": {
     "id": { "type": "string", "pattern": "^F\\d{2}[a-z]?$" },
     "title": { "type": "string", "minLength": 1 },
@@ -35,6 +38,82 @@
       }
     },
     "exact": { "type": "boolean", "description": "No error-level findings other than those expected" },
+    "operations": {
+      "type": "array",
+      "description": "File operations, committed on a branch over tree/ (committed on main); the fixture then runs from git, as qa check --base does",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["rename"],
+            "properties": {
+              "rename": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["from", "to"],
+                "properties": { "from": { "$ref": "#/definitions/path" }, "to": { "$ref": "#/definitions/path" } }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["delete"],
+            "properties": { "delete": { "$ref": "#/definitions/path" } }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["write"],
+            "properties": {
+              "write": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["path"],
+                "properties": {
+                  "path": { "$ref": "#/definitions/path" },
+                  "lines": { "type": "integer", "minimum": 1 },
+                  "text": { "type": "string" }
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "pr": {
+      "type": "object",
+      "description": "A pull request: the fixture runs from git as qa prepr does, with the pull request rules",
+      "additionalProperties": false,
+      "properties": {
+        "branch": { "type": "string", "minLength": 1 },
+        "commits": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Oldest first; the first commit carries the operations",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["message"],
+            "properties": { "message": { "type": "string", "minLength": 1 } }
+          }
+        },
+        "coverage": {
+          "type": "array",
+          "description": "Coverage summaries the test run wrote (left uncommitted)",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["file", "lines_pct"],
+            "properties": {
+              "file": { "$ref": "#/definitions/path" },
+              "lines_pct": { "type": "number", "minimum": 0, "maximum": 100 }
+            }
+          }
+        }
+      }
+    },
     "expect": {
       "type": "array",
       "items": {

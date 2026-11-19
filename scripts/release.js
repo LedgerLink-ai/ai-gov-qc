@@ -14,9 +14,13 @@
 //     repositories by commit SHA
 //   - templates/qa-pr-caller.yml, the reusable workflow and the organisation
 //     ruleset (config/github/org-ruleset-qa.json) name it
+//   - templates/qa-pr-caller.yml calls the reusable workflow at a commit SHA
+//     with its release in a comment ("@<40 hex> # v<version>"): a release not
+//     newer than this one and, where the tag is fetched, the commit it tags
 //   - CHANGELOG.md has a section for it (the release notes)
 //   - policy.yaml's min_engine_version is not newer than it
 
+const { spawnSync } = require('node:child_process');
 const { readFileSync, existsSync } = require('node:fs');
 const { join, resolve } = require('node:path');
 
@@ -60,6 +64,50 @@ function workflowVersions(text) {
   return patterns.flatMap((p) => [...text.matchAll(p)].map((m) => m[1]));
 }
 
+/** The commit a local tag points at, or undefined when the tag is not fetched (or git is missing). */
+function tagCommit(tag) {
+  const res = spawnSync('git', ['rev-parse', '--verify', '--quiet', `refs/tags/${tag}^{commit}`], {
+    cwd: ROOT,
+    encoding: 'utf8',
+  });
+  return res.status === 0 ? res.stdout.trim() : undefined;
+}
+
+/**
+ * Problems with the reusable workflow pins in a caller workflow: each
+ * "uses: .../qa-pr.yml@<ref>" must be a full commit SHA followed by
+ * "# v<version>", the release that commit is tagged as. The release in the
+ * comment may lag the package (the commit of a release is known only once it
+ * is merged, so the stub moves to it in a later pull request), but never lead
+ * it; where the tag is fetched, it must point at that commit.
+ */
+function workflowPinProblems(text, file, version, resolveTag = tagCommit) {
+  const problems = [];
+  const lines = text.split(/\r?\n/).filter((l) => /^\s*uses:\s*\S*qa-pr\.yml@/.test(l));
+  if (lines.length === 0) problems.push(`${file} does not call qa-pr.yml`);
+  for (const line of lines) {
+    const m = /qa-pr\.yml@(\S+?)(?:\s+#\s*v(\S+))?\s*$/.exec(line);
+    const ref = m?.[1];
+    const release = m?.[2];
+    if (!ref || !/^[0-9a-f]{40}$/.test(ref)) {
+      problems.push(`${file} calls qa-pr.yml at "${ref}", not a 40-character commit SHA`);
+      continue;
+    }
+    if (!release || !SEMVER.test(release)) {
+      problems.push(`${file} pins qa-pr.yml@${ref.slice(0, 12)} without a "# v<version>" comment naming its release`);
+      continue;
+    }
+    if (SEMVER.test(version) && compare(release, version) > 0)
+      problems.push(`${file} pins qa-pr.yml from v${release}, newer than this package (${version})`);
+    const tagged = resolveTag(`v${release}`);
+    if (tagged !== undefined && tagged !== ref)
+      problems.push(
+        `${file} pins qa-pr.yml@${ref.slice(0, 12)} as v${release}, but v${release} is commit ${tagged.slice(0, 12)}`,
+      );
+  }
+  return problems;
+}
+
 function checkVersions(expected) {
   const root = require(join(ROOT, 'package.json')).version;
   const engine = require(join(ROOT, 'packages', 'engine', 'package.json')).version;
@@ -100,6 +148,9 @@ function checkVersions(expected) {
     for (const v of new Set(versions)) if (v !== root) problems.push(`${file} uses qa ${v}; the package is ${root}`);
   }
 
+  if (existsSync(join(ROOT, 'templates/qa-pr-caller.yml')))
+    problems.push(...workflowPinProblems(read('templates/qa-pr-caller.yml'), 'templates/qa-pr-caller.yml', root));
+
   if (!existsSync(join(ROOT, 'CHANGELOG.md'))) problems.push('CHANGELOG.md is missing');
   else if (!changelogSection(root)) problems.push(`CHANGELOG.md has no "## ${root}" section (the release notes)`);
 
@@ -111,7 +162,7 @@ function checkVersions(expected) {
   return root;
 }
 
-module.exports = { checkVersions, changelogSection, workflowVersions };
+module.exports = { checkVersions, changelogSection, workflowVersions, workflowPinProblems };
 
 if (require.main === module) {
   try {

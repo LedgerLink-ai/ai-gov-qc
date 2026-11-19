@@ -45,7 +45,8 @@ jobs:
       # Unit, integration, end-to-end (CLI and git hook lifecycle), security,
       # negative authorization and performance tests (docs/TESTING.md).
       - run: npm test
-      - run: npm run conform
+      # Every fixture must run here: qa setup installed the scanners, so a skip is a failure.
+      - run: npm run conform -- --require-all
 
       # Performance benchmark (docs/PERFORMANCE.md), kept for comparison in review.
       - name: benchmark

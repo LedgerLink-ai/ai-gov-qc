@@ -1,0 +1,15 @@
+id: F23
+title: A pull request over the changed-line limit is reported (pr.diff-size)
+repo: link_core
+actor: human
+as_of: 2027-01-08
+operations:
+  - write: { path: src/util/generated-table.ts, lines: 1200 }
+pr:
+  branch: feature/LCORE-213-rate-table
+  commits:
+    - message: 'feat(LCORE-213): add the rate table'
+exact: true
+expect:
+  - check: pr.diff-size
+    blocking: false
