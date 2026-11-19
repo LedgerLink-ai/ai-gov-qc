@@ -58,6 +58,8 @@ export interface CheckDefinition {
   scope: Scope;
   tags: 'all' | Tag[];
   extra_globs?: string[];
+  /** The check looks at paths, not contents, so deleted files apply to it too. */
+  include_deleted?: boolean;
   controls: string[];
   rules: string[];
   /** Where a check comes from when no capability control or rule covers it. */
