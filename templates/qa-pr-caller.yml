@@ -22,8 +22,11 @@ permissions:
 
 jobs:
   qa:
-    # Pin to the commit of the qa release (git rev-list -n 1 v<version>), not a branch.
-    uses: LedgerLink-ai/ai-gov-qc/.github/workflows/qa-pr.yml@v0.2.3
+    # Pinned to the commit of a qa release (git rev-list -n 1 v<version>), with
+    # the release in the comment; a tag or a branch can move, a commit cannot.
+    uses: LedgerLink-ai/ai-gov-qc/.github/workflows/qa-pr.yml@0e1550f28a60b874fdcdbad8d353c20db55e46a4 # v0.2.3
     with:
       qa-version: '0.2.3'
-    secrets: inherit
+    # Only the report token, never every secret of the repository.
+    secrets:
+      QA_REPORT_TOKEN: ${{ secrets.QA_REPORT_TOKEN }}
