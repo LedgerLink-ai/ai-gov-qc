@@ -127,6 +127,8 @@ function notApplicable(def: CheckDefinition, ctx: RunContext, opts: RunOptions):
       return ctx.pr === undefined ? STAGE_RUNS[3] : undefined;
     case 'file':
       if (ctx.filesFor(def).length > 0) return undefined;
+      // A pull request can add and remove a file, leaving nothing changed but history to scan.
+      if (ctx.pr && def.kind === 'tool' && TOOL_ADAPTERS[def.tool as string]?.history) return undefined;
       return def.tags === 'all' ? 'no changed files' : `no changed file carries ${def.tags.join(', ')}`;
   }
 }
@@ -143,9 +145,21 @@ interface Outcome {
  * and only the rest go to the scanner.
  */
 async function runTool(def: CheckDefinition, ctx: RunContext, cache?: ResultCache): Promise<Outcome> {
+  const tree = await runToolOnFiles(def, ctx, cache);
+  const adapter = TOOL_ADAPTERS[def.tool as string];
+  if (!ctx.pr || !adapter.history) return tree;
+  // Outside the cache: history is not a property of any one file's content.
+  // A finding still in the final files is reported once, by the file scan.
+  const inTree = new Set(tree.findings.map((f) => `${f.path}\0${f.fingerprintBasis}`));
+  const history = (await adapter.history(ctx, def)).filter((f) => !inTree.has(`${f.path}\0${f.fingerprintBasis}`));
+  return { ...tree, findings: [...tree.findings, ...history] };
+}
+
+async function runToolOnFiles(def: CheckDefinition, ctx: RunContext, cache?: ResultCache): Promise<Outcome> {
   const adapter = TOOL_ADAPTERS[def.tool as string];
   const files = ctx.filesFor(def);
   const toolVersion = adapter.available() ? adapter.version() : undefined;
+  if (files.length === 0) return { findings: [], toolVersion };
   if (!cache || !toolVersion) return { findings: await adapter.run(ctx, def, files), toolVersion };
 
   const rulesHash = adapter.rulesHash(ctx);
