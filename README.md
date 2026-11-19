@@ -74,16 +74,16 @@ To develop this repository you also need `npm install`. The scanners are only ne
 
 ## Install
 
-Download the latest release from the [Releases page](https://github.com/LedgerLink-ai/ai-gov-qc/releases). Its notes have the install commands for each OS, and how to check, upgrade, uninstall and roll back. In short:
+Quick install, on Windows, macOS and Linux (replace `<version>` with the [latest release](https://github.com/LedgerLink-ai/ai-gov-qc/releases), for example `0.2.3`):
 
 ```bash
-gh release download v<version> --repo LedgerLink-ai/ai-gov-qc --pattern 'ledgerlink-qa-<version>.tgz*'
-npm install -g --ignore-scripts ./ledgerlink-qa-<version>.tgz
+npm install -g --ignore-scripts https://github.com/LedgerLink-ai/ai-gov-qc/releases/download/v<version>/ledgerlink-qa-<version>.tgz
 qa setup
-qa doctor
 ```
 
-Run `qa doctor` inside a LedgerLink-ai repository. To remove qa, run `qa setup --uninstall` first and then `npm uninstall -g @ledgerlink/qa`.
+Then put `~/.ledgerlink-qa/bin` on your PATH and run `qa doctor` inside a LedgerLink-ai repository.
+
+The quick install does not check the package's SHA-256 or its build provenance attestation. Each release's notes have the step-by-step install that checks both, for each OS, and how to upgrade, uninstall and roll back. To remove qa, run `qa setup --uninstall` first and then `npm uninstall -g @ledgerlink/qa`.
 
 ## Documentation
 

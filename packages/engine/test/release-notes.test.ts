@@ -45,6 +45,7 @@ describe('the release notes', () => {
   it('have every section, filled in for the version', () => {
     const notes = release.renderNotes(VERSION, { sha256: SHA, pullRequests: generated([5, 'Docs']) });
     for (const heading of [
+      '## Quick install',
       '## Requirements',
       '## What `qa setup` installs',
       '## Where qa is installed',
@@ -64,6 +65,10 @@ describe('the release notes', () => {
     expect(notes).toContain(`\`${SHA}\``);
     expect(notes).toContain(`gh release download v${VERSION} --repo LedgerLink-ai/ai-gov-qc`);
     expect(notes).toContain(`npm install -g --ignore-scripts ./ledgerlink-qa-${VERSION}.tgz`);
+    // Quick install: one command from this release's own download URL.
+    expect(notes).toContain(
+      `npm install -g --ignore-scripts https://github.com/LedgerLink-ai/ai-gov-qc/releases/download/v${VERSION}/ledgerlink-qa-${VERSION}.tgz`,
+    );
     expect(notes).toContain(`(#whats-new-in-${VERSION.replace(/\./g, '')})`);
   });
 
@@ -79,7 +84,9 @@ describe('the release notes', () => {
   });
 
   it('use the repository they are released from', () => {
-    expect(release.renderNotes(VERSION, { repo: 'acme/qa-fork' })).toContain('--repo acme/qa-fork');
+    const fork = release.renderNotes(VERSION, { repo: 'acme/qa-fork' });
+    expect(fork).toContain('--repo acme/qa-fork');
+    expect(fork).toContain(`https://github.com/acme/qa-fork/releases/download/v${VERSION}/`);
     expect(() => release.renderNotes(VERSION, { repo: 'acme/qa; rm -rf /' })).toThrow(/not <owner>\/<name>/);
   });
 
