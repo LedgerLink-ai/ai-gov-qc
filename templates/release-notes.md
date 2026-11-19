@@ -8,7 +8,23 @@
 | Platforms | Windows, macOS, Linux                                 |
 | Changes   | [What's new in {{version}}](#whats-new-in-{{anchor}}) |
 
-**Contents:** [Requirements](#requirements) · [What `qa setup` installs](#what-qa-setup-installs) · [Where qa is installed](#where-qa-is-installed) · [Install](#install) · [Check the installation](#check-the-installation) · [Upgrade](#upgrade) · [Uninstall](#uninstall) · [Roll back](#roll-back) · [What's new](#whats-new-in-{{anchor}}) · [Pull requests](#pull-requests-in-this-release)
+## Quick install
+
+One command on Windows, macOS and Linux, then setup. You need Node.js 20+, Git and Python 3.11 to 3.14 first ([Requirements](#requirements)).
+
+```bash
+npm install -g --ignore-scripts https://github.com/{{repo}}/releases/download/v{{version}}/ledgerlink-qa-{{version}}.tgz
+qa setup
+```
+
+Then:
+
+- Put `~/.ledgerlink-qa/bin` on your PATH (the last command for your OS in [Install](#install)) and open a new terminal.
+- Run `qa doctor` inside a LedgerLink-ai repository. It ends with `result: READY` when the hooks will run.
+
+This installs the package straight from this release without checking its SHA-256 or its build provenance attestation. To check both, use the step-by-step [Install](#install).
+
+**Contents:** [Quick install](#quick-install) · [Requirements](#requirements) · [What `qa setup` installs](#what-qa-setup-installs) · [Where qa is installed](#where-qa-is-installed) · [Install](#install) · [Check the installation](#check-the-installation) · [Upgrade](#upgrade) · [Uninstall](#uninstall) · [Roll back](#roll-back) · [What's new](#whats-new-in-{{anchor}}) · [Pull requests](#pull-requests-in-this-release)
 
 ## Requirements
 
@@ -68,6 +84,8 @@ The npm paths are npm's defaults; `npm prefix -g` shows yours (nvm and similar t
 `core.hooksPath` is the only setting qa changes outside the folders above. If it is already set to something else, `qa setup` leaves it as it is and tells you what to do.
 
 ## Install
+
+The step-by-step install checks the package before installing it. For the one-command install, see [Quick install](#quick-install).
 
 Run these from the folder you download the package into.
 
