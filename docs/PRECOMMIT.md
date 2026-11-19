@@ -135,7 +135,7 @@ The Next.js build, the full lint, the E2E tests and the lockfile check moved fro
 **Before `yarn install` can run**, connect the hooks directly:
 
 ```powershell
-pre-commit install --hook-type pre-commit --hook-type prepare-commit-msg --hook-type pre-push
+pre-commit install --hook-type pre-commit --hook-type prepare-commit-msg --hook-type commit-msg --hook-type pre-push
 ```
 
 For example, `link-dashboard` needs LedgerLink's AWS CodeArtifact login first, because `@ledgerlink/link-sdk` comes from that private registry. Until `node_modules` exists, `repo-prettier` and `repo-eslint` print "not installed in this repository yet … skipped". `doctor` shows `READY` with a warning that husky is not set up yet.
@@ -143,7 +143,7 @@ For example, `link-dashboard` needs LedgerLink's AWS CodeArtifact login first, b
 Once `yarn install` succeeds, husky sets `core.hooksPath` and git stops reading `.git/hooks`. Remove the direct hooks then:
 
 ```powershell
-pre-commit uninstall --hook-type pre-commit --hook-type prepare-commit-msg --hook-type pre-push
+pre-commit uninstall --hook-type pre-commit --hook-type prepare-commit-msg --hook-type commit-msg --hook-type pre-push
 ```
 
 Checked on `link-dashboard` on 2 Nov 2026 with the direct hooks:
@@ -198,7 +198,7 @@ Any commit message is accepted; the prepare-commit-msg hook pre-fills it (see "C
 - Instruction-file lint and the MCP allowlist switch on 30 Nov.
 - Protected paths switch on 14 Dec.
 
-**Order.** git runs the pre-commit checks first, then the prepare-commit-msg hook fills in the message. Only the pre-commit checks can stop a commit.
+**Order.** git runs the pre-commit checks first, then the prepare-commit-msg hook fills in the message, then the commit-msg hook checks it. The pre-commit checks can stop a commit, and so can the commit-msg hook (`qa commit-msg`) once `commit.message` is in block mode; while it reports, it only prints. prepare-commit-msg never stops a commit.
 
 To see the hooks as they will behave after go-live, set the date for your terminal first:
 
@@ -267,8 +267,8 @@ node packages/engine/bin/qa.js precommit --root ../sandbox/link_core --as-of 202
 
 ## 5. Open points
 
-- **Commit conventions.** Since 3 Nov the package follows the implementation doc v2 and the Development Guideline Policy: no subject format, `prepare-commit-msg` instead of `commit-msg`, Assisted-by checked for its form only, on the pull request. Repositories that enforce their Jira key with their own husky `commit-msg` hook (`scripts/verify-commit-msg.ts`) keep it; the two no longer contradict each other.
-- **Upgrading from 0.1.0.** 0.2.0 is not compatible with configurations that pin `--require 0.1.0` (they run `qa commit-msg`, which no longer exists). Each repository's `.pre-commit-config.yaml` is re-copied from the template, and clones whose hooks came from the old template run `pre-commit install` once to connect `prepare-commit-msg`.
+- **Commit conventions.** Subjects follow `<type>(<TICKET-123>): <description>`, with the type and ticket key taken from the branch (AIQC-87, [BRANCH-AND-COMMIT-CONVENTIONS.md](BRANCH-AND-COMMIT-CONVENTIONS.md)). `prepare-commit-msg` pre-fills the subject and the Assisted-by default; the commit-msg hook (`qa commit-msg`, wired by the template) checks the subject, reporting until `commit.message` gets a blocking date; Assisted-by is checked for its form only, on the pull request. Repositories that enforce their Jira key with their own husky `commit-msg` hook (`scripts/verify-commit-msg.ts`) keep it.
+- **Upgrading from 0.1.0.** 0.2.0 is not compatible with configurations that pin `--require 0.1.0` (their `qa commit-msg` enforced the old Conventional Commits + `Refs:` format; the current `qa commit-msg` checks the ticket-based subject instead). Each repository's `.pre-commit-config.yaml` is re-copied from the template, and clones whose hooks came from the old template run `pre-commit install` once to connect `prepare-commit-msg` and `commit-msg`.
 - **Speed on Windows.** The hooks add up to about 8 s; ESLint is the largest share at 3 s. pre-commit's own start-up brings a commit to 10–13 s on this machine. The qa hook alone takes 2.5–3.5 s.
 - **AI-assisted commits.** The trailer comes from each developer's `ledgerlink.assistedBy` default, or from a `Co-authored-by` line the AI tool adds; nothing reads it from the tool itself.
 - **Formatting debt in link-dashboard.** 54 files on `develop` are not Prettier-formatted (line endings aside), so stage 3 checks only the files a pull request changes. One formatting commit would allow `prettier --check .` on the whole tree.

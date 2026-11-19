@@ -1,7 +1,7 @@
 id: F00
-title: Clean agent change on a ledger path produces no blocking finding (false-positive guard)
+title: Clean change to AI configuration and a ledger path produces no blocking finding (false-positive guard; an agent may not edit AI configuration, F19)
 repo: link_core
-actor: agent
+actor: human
 as_of: 2027-01-08
 commit_message: |
   feat(LCORE-212): add bounded retry to the settlement poller

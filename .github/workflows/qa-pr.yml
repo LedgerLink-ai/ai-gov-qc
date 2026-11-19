@@ -118,8 +118,13 @@ jobs:
           PKG="ledgerlink-qa-$QA_VERSION.tgz"
           gh release download "v$QA_VERSION" --repo "$QA_REPOSITORY" --pattern "$PKG" --pattern "$PKG.sha256"
           sha256sum -c "$PKG.sha256"
+          # Signed by release.yml running for main, on a GitHub-hosted runner:
+          # a release workflow edited on another branch, or one that ran on a
+          # self-hosted runner, cannot produce an attestation that passes.
           gh attestation verify "$PKG" --repo "$QA_REPOSITORY" \
-            --signer-workflow "$QA_REPOSITORY/.github/workflows/release.yml"
+            --signer-workflow "$QA_REPOSITORY/.github/workflows/release.yml" \
+            --source-ref refs/heads/main \
+            --deny-self-hosted-runners
           npm install -g --no-audit --no-fund --ignore-scripts "./$PKG"
           qa version
 

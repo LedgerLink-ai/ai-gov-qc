@@ -29,8 +29,11 @@ pull request into a protected branch of an opted-in repository:
 0. Fails a pull request from a fork before anything runs: a required check
    must never pass without checking.
 1. Installs the pinned qa release (`qa-version`), after checking its SHA-256
-   and its build provenance attestation (signed by this repository's
-   `release.yml`). Nothing from the pull request runs before this.
+   and its build provenance attestation: signed by this repository's
+   `release.yml`, running for `refs/heads/main` (`--source-ref`), on a
+   GitHub-hosted runner (`--deny-self-hosted-runners`). A release workflow
+   edited on another branch cannot produce a package that passes. Nothing
+   from the pull request runs before this.
 2. Installs Gitleaks, Semgrep and pre-commit at the pinned versions; every
    download is hash-checked.
 3. Runs `qa prepr --mode ci`: every stage, on everything the pull request
@@ -38,7 +41,12 @@ pull request into a protected branch of an opted-in repository:
    engine refuses `--config` and `QA_CONFIG_DIR`, takes the repository's
    identity from the Actions environment (only allowlisted LedgerLink-ai
    repositories run; forks never do) and reads the baseline from the base
-   branch.
+   branch. Secrets are scanned in the files the pull request changes and in
+   its history (`base..HEAD`; the checkout has `fetch-depth: 0`). The agent
+   rules apply when the author is a registered agent or when any commit
+   declares AI assistance (an `Assisted-by` trailer, or a `Co-authored-by`
+   naming an AI tool of the registry). Coverage counts only when the run
+   produced it: a coverage summary committed to the repository is ignored.
 4. Fails on a blocking finding (exit 1) or on any check that could not run
    (exit 2). Uploads SARIF to code scanning and keeps `evidence.json` for 90
    days; the job summary lists every check.
@@ -83,8 +91,13 @@ Option B.
 Where Option A is not available:
 
 1. Copy [`templates/qa-pr-caller.yml`](../templates/qa-pr-caller.yml) to
-   `.github/workflows/qa.yml` in the repository. Pin `uses:` to the commit of
-   the release tag (`git rev-list -n 1 v<version>`).
+   `.github/workflows/qa.yml` in the repository. It calls `qa-pr.yml` at a
+   full commit SHA with the release in a comment,
+   `qa-pr.yml@<40-hex commit> # v<version>` (the commit is
+   `git rev-list -n 1 v<version>`), never at a tag or branch, and passes only
+   `QA_REPORT_TOKEN` (`secrets: { QA_REPORT_TOKEN: ${{ secrets.QA_REPORT_TOKEN }} }`),
+   never `secrets: inherit`. `node scripts/release.js --check` refuses any
+   other form in the template.
 2. Apply
    [`config/github/repo-ruleset-qa-required-check.json`](../config/github/repo-ruleset-qa-required-check.json),
    which requires the `qa / pull request checks` status check (with
@@ -107,9 +120,30 @@ Where Option A is not available:
 ### Rolling out a new qa release
 
 Option A: update `ref` in the organisation ruleset to the new tag. Option B:
-update `qa-version` and the pinned `uses:` in each stub (one pull request per
+update `qa-version` and the pinned `uses:` (commit SHA and `# v<version>`
+comment) in each stub (one pull request per
 repository, or a bulk change). In both, rolling back is the same change with
 the earlier version ([OPERATIONS.md](OPERATIONS.md#rollback)).
+
+## This repository's own rulesets
+
+The rules that protect qa itself are in `config/github/` too, and an
+administrator of `LedgerLink-ai/ai-gov-qc` applies them (repository settings,
+Rules, Rulesets; or `gh api -X PUT repos/LedgerLink-ai/ai-gov-qc/rulesets/<id> --input <file>`):
+
+| File                                                                                | Protects       | Rules                                                                                                                                                                                          |
+| ----------------------------------------------------------------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`repo-ruleset-main.json`](../config/github/repo-ruleset-main.json)                 | `main`         | Pull request with **one approval and code-owner review**, stale approvals dismissed, threads resolved, merge commits only (dev is merged into main); CI on three OSes and `branch-policy` pass |
+| [`repo-ruleset-dev.json`](../config/github/repo-ruleset-dev.json)                   | `dev`          | Pull request with **one approval and code-owner review**, stale approvals dismissed, threads resolved, squash or merge; CI on three OSes passes                                                |
+| [`repo-ruleset-release-tags.json`](../config/github/repo-ruleset-release-tags.json) | `refs/tags/v*` | Release tags cannot be created, moved or deleted, except by GitHub Actions (`release.yml` creates them)                                                                                        |
+
+As of 18 Nov 2026 the live `main` and `dev` rulesets require **no**
+approval and no code-owner review, so the code-owner review that the
+baseline, exemptions, allowlist and `.github/` rely on is not enforced in
+this repository until an administrator applies the two files above. The live
+release-tag ruleset blocks moving and deleting `v*` tags but not creating
+them; the file adds that. CODEOWNERS must name teams that exist, with write
+access, or code-owner review cannot be satisfied.
 
 ## Who can bypass
 

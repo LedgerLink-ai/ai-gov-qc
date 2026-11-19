@@ -10,9 +10,10 @@ import { clearCache, cacheDir, openCache } from './cache';
 import { canonicalRepoName, loadAllowlist, loadConfig, locateConfig } from './config';
 import { envMs } from './exec';
 import { configSourceProblem, gate, isConformanceRoot, isWithin } from './gate';
-import { runConformance, unavailableTools } from './conform';
+import { conformExitCode, runConformance, unavailableTools } from './conform';
 import { createLogger, logger, parseLogSettings, setLogger } from './log';
 import { isCalendarDate, today } from './policy';
+import { aiDeclaredCommits, ciCoverage } from './pr-gate';
 import { publishEvidence } from './publish';
 import { redact } from './redact';
 import {
@@ -106,7 +107,9 @@ Usage:
   qa baseline   [selection] [options]   Record current findings in .qa/baseline.sarif (they then report, not block)
   qa rules      <path>... [options]     Tags, checks, controls and approvals for these paths
   qa validate   [--config <dir>]        Validate the registries and their cross-references
-  qa conform    [--config <dir>]        Run the conformance fixtures through the API and CLI paths
+  qa conform    [--config <dir>] [--require-all]
+                                        Run the conformance fixtures through the API and CLI paths;
+                                        --require-all fails on a skipped or pending fixture (CI)
   qa cache      clear | path            Remove or show the local scanner result cache
   qa version
 
@@ -179,7 +182,9 @@ Environment:
   QA_REPORT_URL, QA_REPORT_TOKEN, QA_REPORT_REQUIRED=1
                         Central reporting; with QA_REPORT_REQUIRED=1 a failed upload is exit 2
   QA_PR_AUTHOR          In CI: the pull request author; an agent login from the AI registry runs the
-                        agent rules (default actor), anyone else the human rules
+                        agent rules (default actor), anyone else the human rules. qa prepr also runs the
+                        agent rules when a commit declares AI assistance (Assisted-by, or an AI
+                        Co-authored-by), unless --actor is given
 
 Exit codes: 0 pass, 1 blocking findings, 2 the engine could not run (treat as a failure).`;
 
@@ -221,6 +226,7 @@ const BOOLEAN_FLAGS = new Set([
   'no-global-hooks',
   'uninstall',
   'no-cache',
+  'require-all',
 ]);
 
 export function parseArgs(argv: string[]): { command: string; positionals: string[]; flags: Flags } {
@@ -606,6 +612,26 @@ async function prepr(flags: Flags): Promise<number> {
   };
   const opts = runOptions(flags, sel, { stages: [0, 1, 2, 3], pr });
   opts.timeBudgetMs = opts.config.policy.local.prepr_time_budget_ms;
+  // A pull request whose commits declare AI assistance (Assisted-by, or an AI
+  // Co-authored-by) gets the agent rules, whoever opened it. Only --actor
+  // chooses otherwise.
+  const declared = aiDeclaredCommits(pr.commits, opts.config.registry);
+  if (opts.actor === 'human' && str(flags, 'actor') === undefined && declared.length > 0) {
+    opts.actor = 'agent';
+    logger().info('actor.from-commits', { commits: declared.map((c) => c.sha.slice(0, 12)) });
+  }
+  // In CI, coverage counts only when this run produced it: a summary committed
+  // to the repository is the pull request's own claim.
+  if (opts.mode === 'ci') {
+    const { use, ignored } = ciCoverage(root, pr.coverage);
+    pr.coverage = use;
+    for (const c of ignored)
+      logger().warn(
+        'coverage.committed',
+        { file: c.file },
+        `${c.file} is committed to the repository, so it is not coverage produced in this run; it is ignored in CI`,
+      );
+  }
   if (!flags.quiet) {
     print(`qa prepr: ${pr.branch} into ${base}, ${pr.commits.length} commit(s), ${sel.files.length} file(s)`);
     const dirty = spawnSync('git', ['status', '--porcelain', '--untracked-files=no'], { cwd: root, encoding: 'utf8' });
@@ -951,7 +977,7 @@ async function conform(flags: Flags): Promise<number> {
   print(
     `conformance: ${count('pass')} pass, ${count('fail')} fail, ${count('skip')} skipped, ${count('pending')} pending`,
   );
-  return count('fail') > 0 ? 1 : 0;
+  return conformExitCode(results, flags['require-all'] === true);
 }
 
 /**

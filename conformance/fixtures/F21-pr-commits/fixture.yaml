@@ -1,0 +1,13 @@
+id: F21
+title: A pull request commit with an Assisted-by trailer in the old form is reported (pr.commits)
+repo: link_core
+actor: human
+as_of: 2027-01-08
+pr:
+  branch: bugfix/LCORE-212-refund-key
+  commits:
+    - message: "fix(LCORE-212): reject a replayed refund\n\nAssisted-by: cursor/gpt-5\n"
+exact: true
+expect:
+  - check: pr.commits
+    blocking: false

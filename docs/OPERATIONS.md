@@ -14,7 +14,7 @@ Linux. The GitHub CLI (`gh`) for verification.
 VERSION=0.2.3
 gh release download "v$VERSION" --repo LedgerLink-ai/ai-gov-qc --pattern "ledgerlink-qa-$VERSION.tgz*"
 sha256sum -c "ledgerlink-qa-$VERSION.tgz.sha256"                              # integrity
-gh attestation verify "ledgerlink-qa-$VERSION.tgz" --repo LedgerLink-ai/ai-gov-qc  # built by release.yml from a commit of this repository
+gh attestation verify "ledgerlink-qa-$VERSION.tgz" --repo LedgerLink-ai/ai-gov-qc   --signer-workflow LedgerLink-ai/ai-gov-qc/.github/workflows/release.yml   --source-ref refs/heads/main --deny-self-hosted-runners   # built by release.yml for main, on GitHub's runners
 npm install -g --ignore-scripts "./ledgerlink-qa-$VERSION.tgz"
 qa setup                    # pre-commit, Semgrep, Gitleaks at the pinned versions, hash-checked; the hooks for every repository
 git config --global ledgerlink.assistedBy "<tool>, <model>, <version>"    # "none" without AI tools
@@ -96,10 +96,12 @@ refused to run (treat as a failure, never as a pass).
 1. In a pull request to `dev`: bump `version` in both `package.json` files,
    add a `## <version>` section to `CHANGELOG.md`, and update the pins that
    name the version: `qa --require` in `templates/pre-commit-config.yaml`,
-   `qa-version` and the `@v<version>` in `templates/qa-pr-caller.yml`, the
-   defaults in `.github/workflows/qa-pr.yml`, and the tag in
+   `qa-version` in `templates/qa-pr-caller.yml`, the defaults in
+   `.github/workflows/qa-pr.yml`, and the tag in
    `config/github/org-ruleset-qa.json`. `node scripts/release.js --check`
-   (run by CI) fails until every one agrees.
+   (run by CI) fails until every one agrees. The caller's
+   `qa-pr.yml@<commit> # v<version>` pin keeps naming the previous release:
+   the new release's commit exists only after the merge.
 2. Merge `dev` into `main` (the only allowed source for `main`). CI runs on
    Linux, macOS and Windows and builds the package.
 3. `release.yml` then, when the version is not tagged yet: checks the
@@ -107,8 +109,23 @@ refused to run (treat as a failure, never as a pass).
    commit `v<version>` and publishes the GitHub release with the changelog
    section, install and verification commands. A failed release is retried
    with "Re-run jobs".
-4. Roll out: update the organisation ruleset's `ref` (Option A) or each
+4. Pin the caller template to the new release: a pull request that sets
+   `uses: ...qa-pr.yml@<git rev-list -n 1 v<version>> # v<version>` in
+   `templates/qa-pr-caller.yml` (the release check refuses a comment newer
+   than the package, or one that does not match the fetched tag).
+5. Roll out: update the organisation ruleset's `ref` (Option A) or each
    repository's stub (Option B), and announce the `npm install` command.
+
+**Immutable releases (administrator, once).** Releases up to v0.2.3 are
+published with `immutable: false`: an administrator can still replace their
+assets, and only the attestation check would notice. Turn on immutable
+releases for `LedgerLink-ai/ai-gov-qc` (repository Settings, General,
+Releases, "Enable release immutability", or the organisation policy), so each
+release's assets and tag are locked once published. Check with
+`gh api repos/LedgerLink-ai/ai-gov-qc/releases/latest --jq .immutable`.
+Release tags are also protected by
+[`config/github/repo-ruleset-release-tags.json`](../config/github/repo-ruleset-release-tags.json)
+([ENFORCEMENT.md](ENFORCEMENT.md#this-repositorys-own-rulesets)).
 
 Version rules: semantic versioning; below 1.0 a minor version is breaking
 (`--require 0.2.3` accepts 0.2.x from 0.2.3, never 0.3.0). A configuration
@@ -120,12 +137,12 @@ SARIF formats only gain fields within a schema version.
 qa is pinned everywhere it runs, so rolling back is choosing the earlier
 version, not reverting history:
 
-| Where                      | Roll back by                                                                                                                   |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Pull request gate          | Organisation ruleset `ref` to the earlier tag (Option A), or `qa-version` / `@v<version>` in the stub (Option B)               |
-| Developer machines         | Install the earlier release (same commands as above); `qa version` confirms                                                    |
-| Hooks in a repository      | Set `qa --require` back in `.pre-commit-config.yaml` (within the same 0.x line, an older `--require` accepts the newer qa too) |
-| A single misbehaving check | In `policy.yaml`, set the check to `mode: report` (or `off`) and release: no engine change needed                              |
+| Where                      | Roll back by                                                                                                                          |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Pull request gate          | Organisation ruleset `ref` to the earlier tag (Option A), or `qa-version` and the `@<commit> # v<version>` pin in the stub (Option B) |
+| Developer machines         | Install the earlier release (same commands as above); `qa version` confirms                                                           |
+| Hooks in a repository      | Set `qa --require` back in `.pre-commit-config.yaml` (within the same 0.x line, an older `--require` accepts the newer qa too)        |
+| A single misbehaving check | In `policy.yaml`, set the check to `mode: report` (or `off`) and release: no engine change needed                                     |
 
 Then fix forward: revert the change on `dev`, release a new patch version.
 Never delete or move a published tag: repositories pin to it. Rollbacks are
