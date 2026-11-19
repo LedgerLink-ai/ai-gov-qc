@@ -9,6 +9,57 @@ Versions follow semantic versioning. Below 1.0, a minor version is a major one:
 that a repository pinned to an earlier compatible version can install without
 changing its hooks.
 
+## Unreleased
+
+Pull request gate and release trust
+
+- The gate verifies the qa package's attestation was signed by `release.yml`
+  running for `refs/heads/main` on a GitHub-hosted runner
+  (`--source-ref`, `--deny-self-hosted-runners`).
+- `templates/qa-pr-caller.yml` calls `qa-pr.yml` at a commit SHA with a
+  `# v<version>` comment, and passes only `QA_REPORT_TOKEN` instead of
+  `secrets: inherit`. `scripts/release.js --check` refuses a tag or branch
+  pin, a missing or newer release comment, or a comment that does not match
+  the fetched tag.
+- `qa prepr` runs the agent rules when any commit of the pull request
+  declares AI assistance (`Assisted-by`, or a `Co-authored-by` naming a
+  registry AI tool), not only for a registered agent author. `--actor` still
+  decides.
+- In CI, `qa prepr` ignores a coverage summary committed to the repository
+  ("not coverage produced in this run"); locally nothing changes.
+
+Policy
+
+- Protected paths: the `ai-config` tag (agents may not edit AGENTS.md,
+  CLAUDE.md, .mcp.json, .cursor/ and the like; humans get a note for
+  code-owner review), `.github/**`, `**/secrets/**`, `**/.gitleaksignore`,
+  `**/.gitleaks.toml` and `**/.semgrepignore`. `.env.*` keeps covering
+  `.env.example`.
+
+Conformance
+
+- Fixtures can rename and delete files and describe a pull request (branch,
+  commits, coverage); such fixtures run from a git repository on both paths.
+  New fixtures F17 to F25: rename and deletion of protected paths, an agent
+  editing AI configuration, and `pr.branch-name`, `pr.commits`,
+  `pr.commit-messages`, `pr.diff-size` and `tests.coverage`.
+- `qa conform --require-all` fails on a skipped or pending fixture; CI uses
+  it. F00 is now a human change (agents may no longer edit AI configuration).
+
+Repository
+
+- Rulesets for this repository in `config/github/`: `main` and `dev` need one
+  approving code-owner review (stale approvals dismissed); release tags
+  cannot be created, moved or deleted except by GitHub Actions. An
+  administrator applies them, and enables release immutability
+  (docs/ENFORCEMENT.md, docs/OPERATIONS.md).
+- picomatch 4.0.7.
+- Tests: the cache performance guard compares the warm run with the cold one
+  instead of a fixed time (`QA_PERF_BUDGET_MS` sets the cap); the global
+  hooks tests allow slower git commands (`QA_TEST_GIT_TIMEOUT_MS`).
+- Documentation: repository location and status in README.md; the
+  commit-msg hook in PRECOMMIT.md and DECISIONS.md.
+
 ## 0.2.3
 
 Upgrading from 0.2.2
