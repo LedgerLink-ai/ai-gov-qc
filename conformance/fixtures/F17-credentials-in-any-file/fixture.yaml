@@ -1,5 +1,5 @@
 id: F17
-title: Credentials in any file - configuration, environment, shell, CI, code, XML, URLs, command lines, key files and long tokens (AIQC-89)
+title: Credentials in any file - typed declarations, configuration, environment, shell, CI, code, XML, URLs, command lines, key files and long tokens (AIQC-89)
 repo: link_core
 actor: human
 as_of: 2027-01-08
@@ -104,4 +104,13 @@ expect:
     blocking: true
   - check: secrets.gitleaks
     path: .yarnrc.yml
+    blocking: true
+  - check: secrets.gitleaks
+    path: src/config.rs
+    blocking: true
+  - check: secrets.gitleaks
+    path: src/token.ts
+    blocking: true
+  - check: secrets.gitleaks
+    path: src/config.go
     blocking: true
