@@ -5,8 +5,7 @@ import { checkTrailers } from './commit-trailer';
 import { branchFindings, conventions } from './conventions';
 
 // Checks on the pull request as a whole (stage 3): run by "qa prepr" before a
-// pull request is opened, and again by the PR gate. Limits come from the `pr`
-// section of policy.yaml.
+// pull request is opened. Limits come from the `pr` section of policy.yaml.
 
 const DEFAULT_PR_POLICY: PrPolicy = {
   diff_warn_lines: 400,

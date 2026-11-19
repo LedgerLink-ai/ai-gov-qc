@@ -21,8 +21,6 @@
 //   - both package.json files carry the same MAJOR.MINOR.PATCH version
 //   - templates/pre-commit-config.yaml pins exactly that version, and its hook
 //     repositories by commit SHA
-//   - templates/qa-pr-caller.yml, the reusable workflow and the organisation
-//     ruleset (config/github/org-ruleset-qa.json) name it
 //   - CHANGELOG.md has a section for it (the release notes)
 //   - templates/release-notes.md renders for it, every placeholder filled
 //   - policy.yaml's min_engine_version is not newer than it
@@ -169,18 +167,6 @@ function renderNotes(version, { repo = DEFAULT_REPO, sha256, pullRequests, templ
   return out;
 }
 
-/** Every qa version a workflow file names. */
-function workflowVersions(text) {
-  const patterns = [
-    /qa-version:\s*'?(\d+\.\d+\.\d+)'?/g,
-    /default:\s*'(\d+\.\d+\.\d+)'/g,
-    /\|\|\s*'(\d+\.\d+\.\d+)'/g,
-    /qa-pr\.yml@v(\d+\.\d+\.\d+)/g,
-    /refs\/tags\/v(\d+\.\d+\.\d+)/g,
-  ];
-  return patterns.flatMap((p) => [...text.matchAll(p)].map((m) => m[1]));
-}
-
 function checkVersions(expected) {
   const root = require(join(ROOT, 'package.json')).version;
   const engine = require(join(ROOT, 'packages', 'engine', 'package.json')).version;
@@ -207,20 +193,6 @@ function checkVersions(expected) {
     if (!/^[0-9a-f]{40}$/.test(m[1]))
       problems.push(`templates/pre-commit-config.yaml pins a hook repository to "${m[1]}", not a commit SHA`);
 
-  for (const file of [
-    'templates/qa-pr-caller.yml',
-    '.github/workflows/qa-pr.yml',
-    'config/github/org-ruleset-qa.json',
-  ]) {
-    if (!existsSync(join(ROOT, file))) {
-      problems.push(`${file} is missing`);
-      continue;
-    }
-    const versions = workflowVersions(read(file));
-    if (versions.length === 0) problems.push(`${file} names no qa version`);
-    for (const v of new Set(versions)) if (v !== root) problems.push(`${file} uses qa ${v}; the package is ${root}`);
-  }
-
   if (!existsSync(join(ROOT, 'CHANGELOG.md'))) problems.push('CHANGELOG.md is missing');
   else if (!changelogSection(root)) problems.push(`CHANGELOG.md has no "## ${root}" section (the release notes)`);
   else if (!existsSync(join(ROOT, TEMPLATE))) problems.push(`${TEMPLATE} is missing (the release notes)`);
@@ -242,7 +214,6 @@ function checkVersions(expected) {
 module.exports = {
   checkVersions,
   changelogSection,
-  workflowVersions,
   parsePullRequests,
   withoutReverted,
   pullRequestSection,
