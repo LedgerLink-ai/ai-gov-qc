@@ -107,6 +107,8 @@ Exactly three comma-separated parts, none empty: the tool, the model, and a vers
 | You wrote the change with AI help (suggestions, chat, generated code you edited) | Keep the line, and correct it if you used another tool or model.                                                        |
 | An AI agent made the change                                                      | The agent commits under its own identity ([section 5](#5-rules-for-ai-agents)). Never re-commit agent work as your own. |
 
+A pull request any of whose commits declares AI help (an `Assisted-by` line, or a `Co-authored-by` naming an AI tool of the registry) is checked by `qa prepr` with the agent rules: changes to [protected paths](#protected-paths) in it are refused, not just noted, once `paths.protected` blocks. Make such changes in a separate pull request without AI-assisted commits, or pass `--actor human` when a person made them.
+
 Set your default once per machine, so the hook adds it for you:
 
 ```bash
@@ -173,7 +175,9 @@ Findings never show the value. Keep credentials out of the repository:
 | `_authToken=…` in `.npmrc` | `_authToken=${NPM_TOKEN}`, set by `aws codeartifact login` or your CI                                 |
 | A token in a test          | A value generated when the test runs, or an obvious placeholder (`test-token`, `changeme`, `<token>`) |
 
-These are not reported: `${VAR}`, `$VAR`, `%VAR%`, `{{ template }}`, `<placeholder>`, YAML tags, identifiers such as `process.env.DB_PASSWORD`, paths, masked values (`********`), examples (`changeme`, `your-token`, `test`, `example`), and `localhost` or `example.com` in URLs. If a real secret was committed, removing it is not enough: rotate it (R22-10). An exception that must stay goes in `exemptions.yaml`, with code-owner review and an expiry date.
+These are not reported: `${VAR}`, `$VAR`, `%VAR%`, `{{ template }}`, `<placeholder>`, YAML tags, identifiers such as `process.env.DB_PASSWORD`, paths, masked values (`********`), examples (`changeme`, `your-token`, `test`, `example`), and `localhost` or `example.com` in URLs. If a real secret was committed, removing it is not enough: rotate it (R22-10).
+
+Suppressions inside the repository are ignored: `gitleaks:allow` and `nosemgrep` comments, `.gitleaksignore` and `.semgrepignore` change nothing. An exception that must stay goes in `exemptions.yaml`, with code-owner review and an expiry date, or in the dated baseline. `qa prepr` also scans the pull request's commits, so a secret added in one commit and removed in a later one is still found: it stays in the history the pull request pushes.
 
 ### Money types
 
@@ -181,27 +185,36 @@ These are not reported: `${VAR}`, `$VAR`, `%VAR%`, `{{ template }}`, `<placehold
 
 ### AI instruction files
 
-The files AI tools read as instructions (`AGENTS.md`, `CLAUDE.md`, `context/**`, `.claude/**`, `.cursor/**`, `.github/copilot-instructions.md`, `.github/instructions/**`, `**/*.prompt.md`, `.mcp.json`, `.vscode/mcp.json`) and every `README.md` must be plain visible text:
+The files AI tools read as instructions must be plain visible text. They are the files tagged `ai-config` in [path-tags.yaml](../path-tags.yaml): `AGENTS.md` (and `AGENTS.override.md`), `CLAUDE.md` (and `CLAUDE.local.md`), `GEMINI.md`, `context/**`, `.claude/**`, `.cursor/**`, `.cursorrules`, `.windsurfrules`, `.windsurf/**`, `.clinerules`, `.roo/**`, `.gemini/**`, `.codex/**`, `.amazonq/**`, `.github/copilot-instructions.md`, `.github/instructions/**`, `.github/chatmodes/**`, `.github/agents/**`, `.github/prompts/**`, `**/*.prompt.md`, `.mcp.json`, `.vscode/mcp.json` and `.vscode/settings.json`. Every `README.md` is checked too.
 
-- no hidden characters: zero-width, bidirectional controls, Unicode tag characters, soft hyphens;
-- no text telling agents to weaken a control: to commit without the hooks, to switch off or get round tests, lint, checks, hooks, scans or reviews, to disregard findings or warnings, or to disregard their earlier instructions. The exact phrases are in `packages/engine/src/checks/content-lint.ts`;
+- no hidden characters: zero-width and other invisible characters, bidirectional controls and marks, Unicode tag characters, variation selectors (one after an emoji is fine), soft hyphens, line and paragraph separators;
+- no text telling agents to weaken a control: to commit without the hooks (in any of its forms), to switch off or get round tests, lint, checks, hooks, scans or reviews, to disregard findings or warnings, or to disregard their earlier instructions. The exact phrases are in `packages/engine/src/checks/content-lint.ts`;
 - no long encoded blobs (a warning).
 
-A sentence that forbids the action is fine, for example "Never skip the hooks." Pull request text, code comments and READMEs must not contain instructions aimed at AI tools or automated reviewers.
+A clause that forbids the action is fine, for example "Never, under any circumstances, skip the hooks." In a README a phrase is a warning, and a description such as "To skip the tests, …" is not flagged. Pull request text, code comments and READMEs must not contain instructions aimed at AI tools or automated reviewers.
 
 ### MCP servers
 
-An MCP server in `.mcp.json`, `.cursor/mcp.json` or `.vscode/mcp.json` must be listed as `approved` in [registry/ai-registry.yaml](../registry/ai-registry.yaml) and run at an exact approved version: `npx -y @ledgerlink/qa-mcp@0.1.0`, not `npx @ledgerlink/qa-mcp` or `@latest`. URL servers and local commands must be registered too. To use a new server, propose it in the registry with an owner and a review date (R14-6). Personal MCP settings outside the repository are not checked.
+An MCP server in the repository's MCP configuration (`.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json` at any depth, `.vscode/settings.json`, `.gemini/settings.json`, `.roo/mcp.json`, `.amazonq/mcp.json`, `.codex/config.toml`; under `mcpServers`, `servers` or `mcp.servers`) must be listed as `approved` in [registry/ai-registry.yaml](../registry/ai-registry.yaml) and run at an exact approved version: `npx -y @ledgerlink/qa-mcp@0.1.0`, not `npx @ledgerlink/qa-mcp` or `@latest`. URL servers and local commands must be registered too.
+
+- Before the package, a runner (`npx`, `pnpm dlx` and the like) may only have `-y`, `--yes`, `--quiet` or `--silent`.
+- An `env` entry may not change where packages come from or what the runtime loads (`npm_config_*`, any name containing `REGISTRY`, `NODE_OPTIONS`, `NODE_PATH`, `PIP_INDEX_URL`, `PYTHONPATH`, `LD_PRELOAD` and similar).
+- A configuration file that is not valid JSON (or TOML for Codex) is reported, because its servers cannot be checked.
+
+To use a new server, propose it in the registry with an owner and a review date (R14-6). Personal MCP settings outside the repository are not checked.
 
 ### Protected paths
 
 Humans may change these, and the pull request then needs a code-owner approval; agents must not ([section 5](#5-rules-for-ai-agents)):
 
-- CI and review configuration: `.github/workflows/**`, `CODEOWNERS`, `.github/pull_request_template.md`, the gitops repository;
+- CI and review configuration: everything under `.github/`, `CODEOWNERS`, the gitops repository;
+- AI configuration: every file in [AI instruction files](#ai-instruction-files) above, so an agent cannot rewrite its own instructions or the MCP servers it may call;
 - wallet, custody and signing code, as tagged `signing` in [path-tags.yaml](../path-tags.yaml) (for example `src/fireblocks/**` and `src/vault/**` in the enterprise wallet);
-- keys and certificates: `**/*.pem`, `**/*.key`, `**/*.p12`, `**/*.pfx`, `**/keys/**`;
-- environment files: `**/.env`, `**/.env.*`; production configuration: `**/prod/**`;
-- what the checks run: `.pre-commit-config.yaml`, `.husky/**`, and the baseline `.qa/baseline.sarif`.
+- keys, certificates and secrets: `**/*.pem`, `**/*.key`, `**/*.p12`, `**/*.pfx`, `**/keys/**`, `**/secrets/**`;
+- environment files: `**/.env`, `**/.env.*` (including templates such as `.env.example`); production configuration: `**/prod/**`;
+- what the checks run: `.pre-commit-config.yaml`, `.husky/**`, the baseline `.qa/baseline.sarif`, and the scanners' ignore files `.gitleaksignore`, `.gitleaks.toml`, `.semgrepignore`.
+
+A file renamed or moved away from a protected path, or deleted, counts as a change to that path. Globs match ignoring case.
 
 ## 4. Pull requests
 
@@ -260,7 +273,7 @@ These apply to any agent that writes code, commits or opens pull requests in a L
 6. **Git.** Never force-push, delete branches or push to a protected branch directly.
 7. **Credentials and money.** No access to Vault paths holding Fireblocks credentials, the Fireblocks API, signing keys or transaction submission. Deploys, on-chain transactions and key operations always need a named human approval.
 8. **Data.** Never put secrets, card data, personal data or customer data into a prompt, a commit, a log or a pull request.
-9. **Instruction files and integrations.** Keep instruction files plain visible text ([section 3](#ai-instruction-files)). Use only MCP servers and integrations approved and pinned in the AI registry.
+9. **Instruction files and integrations.** Never edit AI configuration, including your own instructions and MCP settings: it is a protected path. Use only MCP servers and integrations approved and pinned in the AI registry.
 10. **Before opening a pull request**, run `qa prepr` and complete the template, including the security checklist. Never write instructions to reviewers or review tools into the pull request.
 
 ## 6. When a check stops you

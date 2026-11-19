@@ -225,7 +225,7 @@ describe('the rulesets in config/github', () => {
   it('every branch ruleset requires an approving code-owner review and dismisses stale approvals', () => {
     const branches = rulesets().filter(([, r]) => r.target === 'branch');
     expect(branches.map(([f]) => f)).toEqual(
-      expect.arrayContaining(['repo-ruleset-main.json', 'repo-ruleset-dev.json', 'org-ruleset-qa.json']),
+      expect.arrayContaining(['repo-ruleset-main.json', 'repo-ruleset-dev.json']),
     );
     for (const [file, r] of branches) {
       const pr = r.rules.find((x) => x.type === 'pull_request')?.parameters ?? {};

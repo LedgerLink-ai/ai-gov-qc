@@ -240,7 +240,9 @@ describeBuilt('hooks end to end', () => {
     r.ownHook('pre-push', `cat > '${seen}'; echo own-pre-push-ran >&2; exit 3`);
     const push = r.run(['push', 'backup', 'HEAD:refs/heads/main'], env);
     expect(push.status).not.toBe(0);
-    expect(push.stderr).toContain('own-pre-push-ran');
+    // Without a terminal the hook collects its output and prints it after the
+    // summary line (AIQC-88); git passes a pre-push hook's stdout through as is.
+    expect(`${push.stdout}${push.stderr}`).toContain('own-pre-push-ran');
     expect(readFileSync(seen, 'utf8')).toMatch(/^\S+ [0-9a-f]{40} refs\/heads\/main [0-9a-f]{40}/);
   });
 
