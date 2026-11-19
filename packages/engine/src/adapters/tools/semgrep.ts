@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process';
+import { readdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { runProcess, scrubbedEnv, ToolTimeoutError } from '../../exec';
 import { redact } from '../../redact';
 import {
@@ -47,8 +49,24 @@ const version = cachedVersion(() => {
 }, binary);
 
 /**
+ * Removes every .semgrepignore among the copied files: an ignore file in the
+ * repository must not take files out of the scan. Semgrep then applies only
+ * its built-in default ignores (dependencies, build output, test directories).
+ */
+export function removeIgnoreFiles(dir: string): void {
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, e.name);
+    if (e.isDirectory()) removeIgnoreFiles(full);
+    else if (e.name.toLowerCase() === '.semgrepignore') rmSync(full, { force: true });
+  }
+}
+
+/**
  * The fast rule set (config/semgrep), run at pre-push and in CI. Rules are
- * local files, so the run needs no network, login or metrics.
+ * local files, so the run needs no network, login or metrics. In-repository
+ * suppressions do not apply: "nosemgrep" comments are ignored (--disable-nosem)
+ * and .semgrepignore files are removed; the only suppressions are
+ * exemptions.yaml and the dated baseline.
  */
 async function run(ctx: RunContext, def: CheckDefinition, files: ChangedFile[]): Promise<Finding[]> {
   if (!version())
@@ -59,10 +77,21 @@ async function run(ctx: RunContext, def: CheckDefinition, files: ChangedFile[]):
   if (!ctx.config.semgrepConfig) throw new Error('config/semgrep is missing from the qa configuration');
   const rules = ctx.config.semgrepConfig;
   return withCheckedFiles(ctx, 'semgrep', files, async (_work, src) => {
+    removeIgnoreFiles(src);
     const timeoutMs = ctx.timeoutFor(def);
     const res = await runProcess(
       binary(),
-      ['scan', '--config', rules, '--json', '--metrics=off', '--disable-version-check', '--quiet', '.'],
+      [
+        'scan',
+        '--config',
+        rules,
+        '--json',
+        '--metrics=off',
+        '--disable-version-check',
+        '--disable-nosem',
+        '--quiet',
+        '.',
+      ],
       { cwd: src, env: semgrepEnv(), timeoutMs },
     );
     if (res.timedOut) throw new ToolTimeoutError('semgrep', timeoutMs);
