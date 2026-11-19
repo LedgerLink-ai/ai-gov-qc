@@ -92,8 +92,12 @@ const PHRASES: Array<{ rule: string; pattern: RegExp }> = [
 ];
 
 const NEGATION = /\b(?:never|not|don't|do not|must not|mustn't|no|cannot|can't)\b/i;
-/** Where a clause starts: punctuation, or a conjunction that starts a new instruction. */
-const CLAUSE_BREAK = /[.!?;:,\u2014\u2013]|\b(?:so|then|but|instead|otherwise|therefore)\b/gi;
+/**
+ * Where a clause starts: punctuation, or a conjunction that starts a new
+ * instruction. Not a comma: "Never, under any circumstances, skip tests" is
+ * one clause, and its negation must count.
+ */
+const CLAUSE_BREAK = /[.!?;:\u2014\u2013]|\b(?:so|then|but|instead|otherwise|therefore)\b/gi;
 const ENCODED_BLOB = /[A-Za-z0-9+/]{120,}={0,2}/;
 
 const hex = (cp: number): string => `U+${cp.toString(16).toUpperCase().padStart(4, '0')}`;
