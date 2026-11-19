@@ -70,9 +70,12 @@ secret: GitHub Personal Access Token (github-pat) in src/config.ts line 12`),
   - `credential-export`: `export TOKEN=...`, `set`, `ENV` and `ARG` lines in
     any file, including documentation;
   - `credential-in-url`: `https://user:password@host`, `postgres://`,
-    `amqp://`, git remotes and registry URLs;
+    `amqp://`, git remotes and registry URLs, whatever the password looks
+    like (a password of letters only is reported; placeholder words such as
+    `password` or `token` are not);
   - `credential-in-connection-string`: `Password=...;`, `?password=`,
-    `?access_token=`, `?sig=` (Azure SAS);
+    `?access_token=`, `?sig=` (Azure SAS); a `#` inside the password is part
+    of it;
   - `credential-on-command-line`: `--password`, `--token`, `--api-key`,
     `--secret` and `curl -u user:password`;
   - `credential-authorization-header`: `Authorization: Bearer|Basic|Token ...`;
@@ -94,9 +97,9 @@ secret: GitHub Personal Access Token (github-pat) in src/config.ts line 12`),
 - Each line is reported once: where several rules match it, the most specific
   is kept (for example `aws-codeartifact-token` over `jwe-token`).
 - Conformance fixtures can generate a value each time they run
-  (`{ random: password | alnum | hex | base64url, length | parts, prefix }`),
+  (`{ random: password | alnum | letters | hex | base64url, length | parts, prefix }`),
   so this repository holds no credential, not even split into pieces. F17 and
-  F18 use them: 33 leaks that must be reported, and 31 look-alikes that must
+  F18 use them: 34 leaks that must be reported, and 32 look-alikes that must
   not.
 
 ### Review findings: execution gate, scanners, hooks and release chain
@@ -164,8 +167,11 @@ Detection
   even when no file changed. Findings name the commit, never the value. No
   merge base is an engine error (fetch the full history).
 - The `bip39-mnemonic` rule is case-insensitive and also catches JSON arrays,
-  numbered lists, YAML lists and hyphen-joined words (still 12 to 24
-  consecutive wordlist words).
+  numbered lists (`1.`, `1)`), YAML lists and hyphen-joined words (still 12
+  to 24 consecutive wordlist words). Each form keeps its own separators, and
+  a JSON array counts only as a whole (12 to 24 one-word strings between its
+  brackets), so a long JSON list of hyphenated names or minified code
+  (`45:case 47:case ...`) is not reported.
 - New Gitleaks rules: `evm-private-key-call` (a 64-hex key passed to
   `new Wallet()`, `privateKeyToAccount()` or a Hardhat accounts list) and
   `evm-private-key-name` (a `0x` key assigned to a signer, `pk` or key name),

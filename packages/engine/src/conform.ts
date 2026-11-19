@@ -79,7 +79,7 @@ export interface FixtureResult {
 export type FixtureValue = string[] | { codepoint: string } | RandomValue;
 
 export interface RandomValue {
-  random: 'alnum' | 'hex' | 'base64url' | 'password';
+  random: 'alnum' | 'letters' | 'hex' | 'base64url' | 'password';
   length?: number;
   parts?: number[];
   prefix?: string;
@@ -90,6 +90,8 @@ export interface RandomValue {
 const CONSONANTS = 'BCDFGHJKLMNPQRSTVWZbcdfghjkmnpqrstvwz';
 const RANDOM_CHARS: Record<RandomValue['random'], string> = {
   alnum: `${CONSONANTS}23456789`,
+  // Letters only: a password a reader could take for a word, which must still be reported.
+  letters: CONSONANTS,
   hex: '0123456789abcdef',
   base64url: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-',
   // A password: letters and digits, then one of PASSWORD_SPECIALS and a digit.

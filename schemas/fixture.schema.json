@@ -39,7 +39,7 @@
             "additionalProperties": false,
             "required": ["random"],
             "properties": {
-              "random": { "enum": ["alnum", "hex", "base64url", "password"] },
+              "random": { "enum": ["alnum", "letters", "hex", "base64url", "password"] },
               "length": { "type": "integer", "minimum": 4, "maximum": 4096 },
               "parts": {
                 "type": "array",

@@ -13,6 +13,8 @@ values:
   # The shape of an AWS CodeArtifact token: a JWE of about 1,000 characters.
   CODEARTIFACT_TOKEN: { random: base64url, prefix: 'eyJ2ZXIiOjEsImlzdSI6', parts: [88, 22, 16, 900, 22] }
   KEY_FILE: { random: alnum, length: 200 }
+  # Letters only: a URL password that looks like a word must still be reported.
+  LETTERS: { random: letters, length: 20 }
 exact: true
 expect:
   - check: secrets.gitleaks
@@ -113,4 +115,7 @@ expect:
     blocking: true
   - check: secrets.gitleaks
     path: src/config.go
+    blocking: true
+  - check: secrets.gitleaks
+    path: config/cache.env
     blocking: true

@@ -35,7 +35,7 @@ The Gitleaks rules added to the defaults are in `config/gitleaks.toml`, generate
 - `bip32-extended-private-key`
 - `bitcoin-wif-private-key`
 - `solana-keypair-array`
-- `bip39-mnemonic`, built from the BIP39 English wordlist, which is checked against its published SHA-256: 12 to 24 consecutive wordlist words, in any case, separated by spaces, hyphens, or as a JSON array, a numbered list or a YAML list
+- `bip39-mnemonic`, built from the BIP39 English wordlist, which is checked against its published SHA-256: 12 to 24 consecutive wordlist words, in any case: separated by spaces, hyphens or commas, as a JSON array of 12 to 24 one-word strings, as a numbered list (`1.` or `1)`) or as a YAML list. Each form keeps its own separators, so a long JSON list of hyphenated names or minified code is not a phrase
 - credentials in any file, by their shape (AIQC-89): `credential-assignment` (quoted, any file), `credential-assignment-config` (unquoted, in configuration, environment, shell, CI and Docker files), `credential-export`, `credential-in-url`, `credential-in-connection-string`, `credential-on-command-line`, `credential-authorization-header`, `credential-in-xml`, `credential-in-xml-setting`, `netrc-password`, `credential-file` (SSH keys, `.git-credentials`, keystores), `jwe-token` and `aws-codeartifact-token`. Values kept elsewhere (`${VAR}`, `{{ template }}`, `<placeholder>`), identifiers, paths, masked values and examples are not reported
 
 The two EVM rules with a name or call also need a minimum entropy, so placeholders such as repeated characters are not reported. A finding's fingerprint is a hash of the rule and the matched secret, not the line: a secret that moves stays baselined, and a new secret on a baselined line does not.
