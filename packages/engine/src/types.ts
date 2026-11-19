@@ -70,7 +70,7 @@ export interface Policy {
   version: 1;
   defaults: { mode: PolicyMode };
   local: { time_budget_ms: number; prepush_time_budget_ms?: number; prepr_time_budget_ms?: number };
-  /** Limits for the pull request checks (stage 3: "qa prepr" and the PR gate). */
+  /** Limits for the pull request checks (stage 3: "qa prepr"). */
   pr?: PrPolicy;
   /** Ticket-based branch names and commit messages (AIQC-87). */
   conventions?: ConventionsPolicy;
@@ -221,7 +221,7 @@ export interface RunContext {
   commitMessage?: string;
   /** The branch being committed to; set by the pre-commit and commit-msg hooks, or --branch. */
   branch?: string;
-  /** The pull request being prepared; only in a "qa prepr" run or the PR gate. */
+  /** The pull request being prepared; only in a "qa prepr" run. */
   pr?: PrInfo;
   /** Files this check should look at (by its tags and extra globs), excluding deletions. */
   filesFor(def: CheckDefinition): ChangedFile[];

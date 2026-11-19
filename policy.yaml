@@ -19,7 +19,7 @@ local:
   prepr_time_budget_ms: 180000 # qa prepr
 
 # Pull request checks (stage 3), run by "qa prepr" before a pull request is
-# opened and by the PR gate.
+# opened.
 pr:
   # The branch name follows `conventions` below (pr.branch-name).
   diff_warn_lines: 400

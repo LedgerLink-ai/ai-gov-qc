@@ -40,6 +40,20 @@ const gitleaksEnv = (): NodeJS.ProcessEnv => {
   return env;
 };
 
+/**
+ * The kind of secret in plain words, from Gitleaks' rule description
+ * ("Uncovered a GitHub Personal Access Token, potentially leading to ..." gives
+ * "GitHub Personal Access Token"); the rule id when there is no description.
+ */
+export function secretKind(r: Pick<GitleaksResult, 'RuleID' | 'Description'>): string {
+  const kind = (r.Description ?? '')
+    .replace(/^(?:uncovered|detected|discovered|identified|found|identifies|detects)\s+(?:an?\s+|the\s+)?/i, '')
+    .split(/,|\s+(?:potentially|which|that could|allowing|that may|exposing)\s/i)[0]
+    .replace(/[.\s]+$/, '')
+    .trim();
+  return kind || r.RuleID;
+}
+
 const version = cachedVersion(() => {
   const res = spawnSync(binary(), ['version'], {
     encoding: 'utf8',
@@ -151,8 +165,6 @@ const readReport = (report: string): GitleaksResult[] =>
 
 const toPath = (file: string): string => file.replace(/\\/g, '/').replace(/^\.\//, '');
 
-const ruleText = (r: GitleaksResult): string => `${r.RuleID}${r.Description ? `: ${r.Description}` : ''}`;
-
 /**
  * The pull request's commits (merge base..HEAD), so a secret added in one
  * commit and removed in a later one is still found: it stays in the history
@@ -197,7 +209,7 @@ export async function scanHistory(ctx: RunContext, def: CheckDefinition): Promis
         line: r.StartLine,
         column: r.StartColumn,
         message:
-          `Possible secret (${ruleText(r)}) added in commit ${commit ? commit.slice(0, 12) : 'unknown'} of this pull request. ` +
+          `Possible secret: ${secretKind(r)} (${r.RuleID}), added in commit ${commit ? commit.slice(0, 12) : 'unknown'} of this pull request. ` +
           'A later commit removing it does not remove it from the history. The value is not shown.',
         fixHint:
           'Rotate the credential (R22-10), load it from the secrets manager, and remove it from the branch history before merging.',
@@ -212,9 +224,11 @@ export async function scanHistory(ctx: RunContext, def: CheckDefinition): Promis
 
 /**
  * Scans exactly the changed files with LedgerLink's rules (config/gitleaks.toml:
- * the default rules plus private keys and BIP39 mnemonics), with redaction on.
- * The pull request's commits are scanned separately, by scanHistory, which
- * the runner calls outside the result cache.
+ * the default rules plus private keys, BIP39 mnemonics and credentials in any
+ * file), with redaction on. One finding per line: where several rules match
+ * the same line, the most specific one is kept. The pull request's commits are
+ * scanned separately, by scanHistory, which the runner calls outside the
+ * result cache.
  */
 async function run(ctx: RunContext, def: CheckDefinition, files: ChangedFile[]): Promise<Finding[]> {
   if (!version())
@@ -226,7 +240,7 @@ async function run(ctx: RunContext, def: CheckDefinition, files: ChangedFile[]):
     removeIgnoreFiles(src);
     const report = join(work, 'report.json');
     await runGitleaks(def, ctx, ['dir', '.', ...commonArgs(ctx, report, join(work, 'none'))], src);
-    return readReport(report).map((r): Finding => {
+    return onePerLine(readReport(report)).map((r): Finding => {
       const path = toPath(r.File);
       return {
         checkId: def.id,
@@ -235,13 +249,38 @@ async function run(ctx: RunContext, def: CheckDefinition, files: ChangedFile[]):
         path,
         line: r.StartLine,
         column: r.StartColumn,
-        message: `Possible secret (${ruleText(r)}). The value is not shown.`,
+        message: `Possible secret: ${secretKind(r)} (${r.RuleID}). The value is not shown.`,
         fixHint: 'Remove the value, rotate the credential (R22-10) and load it from the secrets manager.',
         fingerprintBasis: secretBasis(ctx.source.read(path), r),
       };
     });
   });
   return tree;
+}
+
+/**
+ * Rules that match any credential-shaped value. A line they report together
+ * with a rule for a known kind of secret (aws-codeartifact-token, github-pat,
+ * ...) is reported once, under that rule.
+ */
+const GENERAL_RULES = /^(?:generic-api-key|credential-.*|jwe-token)$/;
+
+/**
+ * Keeps one result per file and line: a specific rule over a general one, then
+ * the first rule id in alphabetical order. Gitleaks reports in no fixed order,
+ * and the choice must not depend on it (the rule id is part of the fingerprint).
+ */
+export function onePerLine<T extends { RuleID: string; File: string; StartLine?: number }>(results: T[]): T[] {
+  const rank = (r: T): string => `${GENERAL_RULES.test(r.RuleID) ? 1 : 0}:${r.RuleID}`;
+  const kept = new Map<string, T>();
+  for (const r of results) {
+    const key = `${r.File}:${r.StartLine ?? 0}`;
+    const prev = kept.get(key);
+    if (!prev || rank(r) < rank(prev)) kept.set(key, r);
+  }
+  return [...kept.values()].sort((a, b) =>
+    a.File === b.File ? (a.StartLine ?? 0) - (b.StartLine ?? 0) : a.File < b.File ? -1 : 1,
+  );
 }
 
 export const gitleaks: ToolAdapter = {

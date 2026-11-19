@@ -19,13 +19,13 @@ Branch types and the commit type each one pre-fills: `feature` and `feat` → `f
 
 ## What runs where
 
-| Where                             | Check                | What it does                                                                                                                                                                    |
-| --------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| pre-commit hook (`qa precommit`)  | `branch.ticket`      | The branch being committed to has a valid ticket key and type. Refuses the commit otherwise (block mode), with the command to rename the branch                                 |
-| prepare-commit-msg hook           | (pre-fill)           | Writes `<type>(<TICKET-123>): ` into the subject from the branch. Never rejects a commit                                                                                        |
-| commit-msg hook (`qa commit-msg`) | `commit.message`     | The subject follows the convention and names the branch's ticket. Merges, `fixup!`/`squash!`/`amend!` and `Revert "…"` subjects are left to git                                 |
-| `qa prepr` and the PR gate        | `pr.branch-name`     | The pull request's branch follows the convention and is not the base branch itself                                                                                              |
-| `qa prepr` and the PR gate        | `pr.commit-messages` | Every commit of the pull request follows the convention with the branch's ticket. Local hooks can be skipped with `--no-verify`; this is where the convention cannot be skipped |
+| Where                             | Check                | What it does                                                                                                                                    |
+| --------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| pre-commit hook (`qa precommit`)  | `branch.ticket`      | The branch being committed to has a valid ticket key and type. Refuses the commit otherwise (block mode), with the command to rename the branch |
+| prepare-commit-msg hook           | (pre-fill)           | Writes `<type>(<TICKET-123>): ` into the subject from the branch. Never rejects a commit                                                        |
+| commit-msg hook (`qa commit-msg`) | `commit.message`     | The subject follows the convention and names the branch's ticket. Merges, `fixup!`/`squash!`/`amend!` and `Revert "…"` subjects are left to git |
+| `qa prepr`                        | `pr.branch-name`     | The pull request's branch follows the convention and is not the base branch itself                                                              |
+| `qa prepr`                        | `pr.commit-messages` | Every commit of the pull request follows the convention with the branch's ticket, including commits made with `--no-verify`                     |
 
 During a rebase HEAD is detached; the hooks read the branch being rebased instead. On a detached HEAD with no rebase, `branch.ticket` warns and does not block.
 

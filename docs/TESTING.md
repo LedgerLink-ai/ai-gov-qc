@@ -134,15 +134,15 @@ and the CLI path:
 | `secrets.gitleaks`                | F01, F02, F07–F09                                               |
 | `ai-config.content-lint`          | F00, F03, F03b, F10                                             |
 | `ai-config.mcp-allowlist`         | F00, F04, F04b                                                  |
-| `paths.protected`                 | F05, F05b, F17 (rename), F18 (deletion), F19 (AI configuration) |
+| `paths.protected`                 | F05, F05b, F19 (rename), F20 (deletion), F21 (AI configuration) |
 | `commit.trailer`                  | F06, F11                                                        |
 | `branch.ticket`, `commit.message` | F15, F16                                                        |
 | `sast.semgrep`                    | F12                                                             |
-| `pr.branch-name`                  | F20                                                             |
-| `pr.commits`                      | F21                                                             |
+| `pr.branch-name`                  | F24                                                             |
+| `pr.commits`                      | F25                                                             |
 | `pr.commit-messages`              | F22                                                             |
 | `pr.diff-size`                    | F23                                                             |
-| `tests.coverage`                  | F24, F25 (committed summary ignored in CI)                      |
+| `tests.coverage`                  | F26, F27 (committed summary ignored in CI)                      |
 
 A fixture is a `fixture.yaml` (schema: `schemas/fixture.schema.json`) and a
 `tree/` of `.tmpl` files. Without `operations` or `pr` the tree is a loose
@@ -159,6 +159,5 @@ finds the same scanners as the API path.
 ## What is not covered yet
 
 - The MCP server and `qa init` (week 3).
-- The pull request gate runs in the target repositories once the rulesets are
-  applied ([ENFORCEMENT.md](ENFORCEMENT.md)); its steps are the CLI paths the
-  end-to-end tests cover.
+- Pull request checks: handled outside this repository
+  ([ENFORCEMENT.md](ENFORCEMENT.md)).
