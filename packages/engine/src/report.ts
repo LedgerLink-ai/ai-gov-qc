@@ -316,7 +316,8 @@ export function readBaseline(root: string): Set<string> {
  * keep them from blocking after the exemption expires.
  */
 export function baselineFindings(result: RunResult): EvaluatedFinding[] {
-  return result.findings.filter((f) => f.suppressedBy !== 'exemption');
+  // Only errors can block, so notes and warnings have nothing to baseline.
+  return result.findings.filter((f) => f.level === 'error' && f.suppressedBy !== 'exemption');
 }
 
 export function writeBaseline(root: string, result: RunResult): string {

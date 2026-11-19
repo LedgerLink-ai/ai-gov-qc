@@ -268,7 +268,8 @@ describe('H7: UTF-16, byte order marks, and files that cannot be read as text', 
     const result = await run(
       options({}, { changedFiles: [{ path: 'AGENTS.md', status: 'M' }], source: byteSource({}) }),
     );
-    expect(result.findings).toEqual([]);
+    // AGENTS.md is a protected path, which only adds a code-owner note.
+    expect(result.findings.filter((f) => f.ruleId === 'unscannable')).toEqual([]);
   });
 });
 
