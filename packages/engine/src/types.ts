@@ -2,7 +2,7 @@ export type Tag = string;
 export type Level = 'error' | 'warning' | 'note';
 export type Actor = 'human' | 'agent' | 'ci';
 export type RunMode = 'local' | 'ci';
-export type Scope = 'file' | 'commit' | 'pr' | 'release';
+export type Scope = 'file' | 'branch' | 'commit' | 'pr' | 'release';
 export type PolicyMode = 'off' | 'report' | 'block';
 export type RegistryStatus = 'approved' | 'pending-inventory' | 'blocked' | 'retired';
 
@@ -68,17 +68,36 @@ export interface Policy {
   version: 1;
   defaults: { mode: PolicyMode };
   local: { time_budget_ms: number; prepush_time_budget_ms?: number; prepr_time_budget_ms?: number };
-  /** Limits for the pull request checks (stage 3: "qa prepr" and the PR gate). */
+  /** Limits for the pull request checks (stage 3: "qa prepr"). */
   pr?: PrPolicy;
+  /** Ticket-based branch names and commit messages (AIQC-87). */
+  conventions?: ConventionsPolicy;
   /** Exact versions of the tools every machine runs; `qa doctor` compares them. */
   tools?: Record<string, string>;
   protected: { tags: Tag[]; globs: string[] };
   checks: Record<string, { mode: PolicyMode; block_from?: string }>;
+  /** Time limits; each can be overridden by an environment variable (see cli.ts). */
+  timeouts?: TimeoutPolicy;
+  /** Parallel checks and the local result cache. */
+  performance?: { parallelism?: number; cache?: boolean };
+  /** The oldest engine that understands this configuration. */
+  min_engine_version?: string;
+}
+
+export interface TimeoutPolicy {
+  /** Default limit for one scanner run. */
+  tool_ms?: number;
+  /** Per scanner, e.g. { semgrep: 600000 }. */
+  tools?: Record<string, number>;
+  /** Limit for one git command. */
+  git_ms?: number;
+  /** Limit for one download attempt in "qa setup" and for one report upload. */
+  download_ms?: number;
+  /** Attempts for a download or upload that fails for a network reason. */
+  network_retries?: number;
 }
 
 export interface PrPolicy {
-  /** Branch names a pull request may come from. */
-  branch_pattern: string;
   /** Changed lines (added plus deleted) above which a warning is shown. */
   diff_warn_lines: number;
   /** Changed lines above which the pull request should be split. */
@@ -88,6 +107,30 @@ export interface PrPolicy {
   /** Minimum line coverage, in percent, from the test run's coverage summary. */
   coverage_min_lines: number;
 }
+
+/**
+ * Branch names and commit messages (AIQC-87). A branch is named
+ * <type>/<TICKET-123>-<short-description>; commit subjects follow
+ * commit_template, with the ticket key taken from the branch.
+ */
+export interface ConventionsPolicy {
+  /** A ticket key, as a regular expression without anchors, e.g. "[A-Z][A-Z0-9]+-\d+" for Jira. */
+  ticket_pattern?: string;
+  /** Ticket projects a branch may name (the key without its number); empty accepts any. */
+  ticket_projects?: string[];
+  /** Branch type (the part before the first "/") to the commit type it implies. */
+  branch_types?: Record<string, string>;
+  /** Types a commit subject may start with. */
+  commit_types?: string[];
+  /** The commit subject prefix, with {type} and {ticket}, e.g. "{type}({ticket}): ". */
+  commit_template?: string;
+  /** Branches that need no ticket key (globs), e.g. release/*. */
+  exempt_branches?: string[];
+  /** Overrides for single repositories, by repository name. */
+  repos?: Record<string, ConventionsRepoOverride>;
+}
+
+export type ConventionsRepoOverride = Omit<ConventionsPolicy, 'repos'>;
 
 export interface Exemption {
   id: string;
@@ -100,9 +143,26 @@ export interface Exemption {
   expires: string;
 }
 
+export interface RepositoryEntry {
+  name: string;
+  enabled: boolean;
+  owner?: string;
+  approved_by?: string;
+  onboarded?: string;
+  note?: string;
+}
+
+/** Repositories permitted to run the engine (registry/repositories.yaml, issue #8). */
+export interface RepositoryAllowlist {
+  version: 1;
+  org: string;
+  repositories: RepositoryEntry[];
+}
+
 export interface Config {
   dir: string;
   registry: AiRegistry;
+  repositories: RepositoryAllowlist;
   pathTags: PathTags;
   checks: CheckDefinition[];
   policy: Policy;
@@ -142,10 +202,14 @@ export interface RunContext {
   tags: Set<Tag>;
   source: FileSource;
   commitMessage?: string;
-  /** The pull request being prepared; only in a "qa prepr" run or the PR gate. */
+  /** The branch being committed to; set by the pre-commit and commit-msg hooks, or --branch. */
+  branch?: string;
+  /** The pull request being prepared; only in a "qa prepr" run. */
   pr?: PrInfo;
   /** Files this check should look at (by its tags and extra globs), excluding deletions. */
   filesFor(def: CheckDefinition): ChangedFile[];
+  /** Time limit for one run of this check's scanner, in milliseconds. */
+  timeoutFor(def: CheckDefinition): number;
 }
 
 export interface PrCommit {
@@ -212,6 +276,12 @@ export interface CheckRun {
   durationMs: number;
   findings: number;
   reason?: string;
+  /** The policy mode the check ran in. */
+  mode?: PolicyMode;
+  /** Scanner checks: the scanner's version. */
+  toolVersion?: string;
+  /** Scanner checks: files answered from the local result cache. */
+  cachedFiles?: number;
 }
 
 export interface RunResult {
@@ -231,6 +301,10 @@ export interface RunResult {
   startedAt: string;
   durationMs: number;
   exitCode: 0 | 1 | 2;
+  /** Which stages the run covered (pre-commit 0-1, pre-push 2, pre-PR 0-3, all when undefined). */
+  stages?: number[];
+  /** Local result cache use, when the cache was on. */
+  cache?: { hits: number; misses: number; writes: number };
 }
 
 export class ToolUnavailableError extends Error {
@@ -240,6 +314,14 @@ export class ToolUnavailableError extends Error {
   ) {
     super(`${tool} is not available: ${detail}`);
     this.name = 'ToolUnavailableError';
+  }
+}
+
+/** A command-line value that is refused before anything runs (unsafe or malformed). */
+export class InputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InputError';
   }
 }
 

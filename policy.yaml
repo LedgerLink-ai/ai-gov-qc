@@ -19,16 +19,82 @@ local:
   prepr_time_budget_ms: 180000 # qa prepr
 
 # Pull request checks (stage 3), run by "qa prepr" before a pull request is
-# opened and by the PR gate.
+# opened.
 pr:
-  # A ticket key in the branch name (LCORE-210-limit-invariants), which the
-  # prepare-commit-msg hook copies into each commit message. Recommended, not
-  # required (Development Guideline Policy, "Commit messages and signing").
-  branch_pattern: '(?:^|/)[A-Z][A-Z0-9]+-\d+(?:$|[-_./])'
+  # The branch name follows `conventions` below (pr.branch-name).
   diff_warn_lines: 400
   diff_max_lines: 1000
   diff_ignore: ['**/yarn.lock', '**/package-lock.json', '**/pnpm-lock.yaml', '**/*.snap']
   coverage_min_lines: 80
+
+# Ticket-based branch names and commit messages (AIQC-87, GitHub issue 10).
+# A branch is named <type>/<TICKET-123>-<short-description>, e.g.
+# feature/LCORE-1234-user-authentication. The ticket key and type come from the
+# branch, never from the message: the prepare-commit-msg hook writes them into
+# the subject ("feat(LCORE-1234): "), branch.ticket refuses a commit on a branch
+# without a valid key (pre-commit), commit.message checks the subject carries
+# the branch's key (commit-msg), and pr.branch-name and pr.commit-messages check
+# the same on the pull request.
+conventions:
+  # A ticket key, without anchors or capturing groups. Jira: PROJECT-123. For
+  # another ticket system, change the pattern (e.g. 'GH-\d+').
+  ticket_pattern: '[A-Z][A-Z0-9]+-\d+'
+  # Ticket projects a branch may name (the key without its number). Empty:
+  # any key of the form ABC-123. Set them per repository under
+  # repos.<name>.ticket_projects.
+  ticket_projects: []
+  # Branch type (before the first "/") -> the commit type it pre-fills.
+  branch_types:
+    feature: feat
+    feat: feat
+    bugfix: fix
+    fix: fix
+    hotfix: hotfix
+    chore: chore
+    docs: docs
+    refactor: refactor
+    test: test
+    ci: ci
+    perf: perf
+    build: build
+  # Types a commit subject may use; a developer may pick another than the
+  # branch's, e.g. "fix: ..." on a feature branch becomes "fix(LCORE-1234): ...".
+  commit_types: [feat, fix, hotfix, chore, docs, refactor, test, ci, perf, build, style, revert]
+  # The subject prefix: {type} and {ticket} are filled in from the branch.
+  # "{ticket}: " gives the older "LCORE-1234: <description>" form.
+  commit_template: '{type}({ticket}): '
+  # Branches that need no ticket key (globs), e.g. ['release/*'].
+  exempt_branches: []
+  # Per repository: any of the above. Changes need code-owner review.
+  #   repos:
+  #     link_core:
+  #       ticket_projects: [LCORE]
+  #       commit_template: '{ticket}: '
+  repos: {}
+
+# Time limits. A scanner that runs past its limit is stopped: locally the
+# check is deferred to CI with a notice; in CI it is an engine error (exit 2),
+# never a pass. Environment overrides: QA_TOOL_TIMEOUT_MS (every scanner),
+# QA_GIT_TIMEOUT_MS, QA_DOWNLOAD_TIMEOUT_MS.
+timeouts:
+  tool_ms: 300000 # one Gitleaks or Semgrep run
+  tools:
+    semgrep: 600000 # Semgrep starts a Python runtime and parses every file
+  git_ms: 120000
+  download_ms: 120000 # one attempt to download Gitleaks or upload a report
+  network_retries: 3 # retries for a download or upload that failed for a network reason
+
+# Checks of the same stage run in parallel (stages stay in order, P2), at most
+# this many at a time; QA_PARALLELISM overrides it. Locally, scanner results
+# are cached per file content in <qa home>/cache (QA_NO_CACHE=1 or --no-cache
+# turns it off); CI never uses the cache.
+performance:
+  parallelism: 4
+  cache: true
+
+# The oldest qa that understands this configuration. An older qa stops with
+# instructions instead of misreading it.
+min_engine_version: '0.2.3'
 
 # Exact versions every developer machine and CI run. The hooks themselves are
 # pinned by `rev` in each repository's .pre-commit-config.yaml; `qa doctor`
@@ -42,7 +108,22 @@ protected:
   # Agents must not edit these (AGENTS.md rule 3, C15-4). Humans may, with
   # code-owner review (R11-6).
   tags: [ci-config, signing]
-  globs: ['**/*.pem', '**/*.key', '**/*.p12', '**/*.pfx', '**/keys/**', '**/.env', '**/.env.*', '**/prod/**']
+  # The hook configuration and the dated baseline are protected too: changing
+  # them changes what the checks block, so it needs code-owner review.
+  globs:
+    [
+      '**/*.pem',
+      '**/*.key',
+      '**/*.p12',
+      '**/*.pfx',
+      '**/keys/**',
+      '**/.env',
+      '**/.env.*',
+      '**/prod/**',
+      '.pre-commit-config.yaml',
+      '.husky/**',
+      '.qa/baseline.sarif',
+    ]
 
 checks:
   secrets.gitleaks:
@@ -54,17 +135,26 @@ checks:
   ai-config.mcp-allowlist:
     mode: report
     block_from: 2026-11-30
-  # Commit messages (AI Code Review implementation v2, section 2; Development
-  # Guideline Policy): no subject format is enforced, and nothing about the
-  # message blocks locally. The pull request's pr-rules job checks the
-  # Assisted-by trailer and is what blocks.
+  # The Assisted-by trailer (AI Code Review implementation v2, section 2):
+  # nothing about it blocks locally. The pull request's pr-rules job checks the
+  # trailer and is what blocks.
   commit.trailer:
+    mode: report
+  # Ticket-based branch names and commit messages (AIQC-87): report first, like
+  # every new check; set block_from once agreed with LedgerLink. In block mode a
+  # commit on a branch without a valid ticket key, or with a subject off the
+  # convention, is refused.
+  branch.ticket:
+    mode: report
+  commit.message:
+    mode: report
+  pr.commit-messages:
     mode: report
   sast.semgrep:
     mode: report
     block_from: 2026-11-16 # sast blocks from week 4
   # Pull request checks before a pull request is opened ("qa prepr"). They
-  # report only: the ticket key is recommended, not required; the trailer is
+  # report only: the branch follows `conventions` (report first); the trailer is
   # blocked by the pull request's pr-rules job; a coverage threshold would
   # block repositories whose coverage does not exist yet.
   pr.branch-name:

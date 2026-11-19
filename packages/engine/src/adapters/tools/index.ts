@@ -5,13 +5,20 @@ import { semgrep } from './semgrep';
 /**
  * An external scanner. The adapter is the only code that knows the tool's
  * command line and output format; it returns findings in the common shape.
- * It throws ToolUnavailableError when the tool is not installed.
+ * It throws ToolUnavailableError when the tool is not installed and
+ * ToolTimeoutError when it runs past its time limit.
  */
 export interface ToolAdapter {
   name: string;
   available(): boolean;
   /** Installed version, or undefined when the tool does not run. */
   version(): string | undefined;
+  /** Hash of the rule files the tool runs with; part of the result cache key. */
+  rulesHash(ctx: RunContext): string;
+  /**
+   * Findings for `files`. Each file's findings must depend on that file alone,
+   * so the runner can cache results per file.
+   */
   run(ctx: RunContext, def: CheckDefinition, files: ChangedFile[]): Finding[] | Promise<Finding[]>;
 }
 
