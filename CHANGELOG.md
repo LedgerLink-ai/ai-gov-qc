@@ -12,8 +12,17 @@ changing its hooks.
 
 ## 0.2.4
 
-Readable hook output, and the real reason in IDE commit pop-ups (AIQC-88).
-Compatible with 0.2.x: nothing about what is checked or what blocks changes.
+Upgrading from 0.2.3
+
+- Install the package and run `qa setup` again. Compatible with 0.2.x:
+  repositories pinned with `qa --require 0.2.0` to `0.2.3` keep working.
+- The secret scan now finds credentials it missed before (AIQC-89), so a
+  commit that passed on 0.2.3 can be blocked on 0.2.4. Move the value to a
+  variable or the secrets manager; for a test value, see "Not reported" below.
+
+### Readable hook output, and the real reason in IDE commit pop-ups (AIQC-88)
+
+Nothing about what is checked or what blocks changes in this part.
 
 - When a commit, commit message or push is stopped, the hooks print one
   summary line: what was found and where (`qa: commit blocked: possible
@@ -36,6 +45,59 @@ secret: GitHub Personal Access Token (github-pat) in src/config.ts line 12`),
 - The default hook configuration no longer marks the repository's own
   Prettier, ESLint, tests, type check and build hooks as verbose, so a passing
   run does not print their `- hook id` and `- duration` lines.
+
+### Secrets: credentials in any file (AIQC-89)
+
+- Fix: `secrets.gitleaks` missed most credentials that are not a known token
+  format. Gitleaks' default generic rule only matches values of 10 to 150
+  characters made of letters, digits, `_`, `.`, `=` and `-` (or longer
+  base64), so it missed an AWS CodeArtifact token in `.npmrc` (about 1,000
+  characters with `.`, `-` and `_`), passwords containing characters such as
+  `@ ! # % & ~`, and credentials inside URLs, connection strings, command
+  lines and XML. Of 38 such leaks in a test set, it reported 5; it now reports
+  all 38.
+- New rules, by the shape of a credential rather than by file, so they apply
+  to every file a commit or push changes:
+  - `credential-assignment`: a quoted value given to a password, secret,
+    token or key name (`password: "..."`, `"apiKey": "..."`,
+    `const dbPassword = '...'`, `$env:API_TOKEN = "..."`), including typed
+    declarations (`token: string = "..."`, Rust `&str`, Go `token string`), in
+    any file, any length, any characters;
+  - `credential-assignment-config`: the same, unquoted, in `.env*`,
+    properties, ini, YAML, TOML, Terraform, shell, PowerShell, CI and Docker
+    files and package-manager credential files (`.npmrc`, `.yarnrc.yml`,
+    `.pypirc`, `credentials`, ...);
+  - `credential-export`: `export TOKEN=...`, `set`, `ENV` and `ARG` lines in
+    any file, including documentation;
+  - `credential-in-url`: `https://user:password@host`, `postgres://`,
+    `amqp://`, git remotes and registry URLs;
+  - `credential-in-connection-string`: `Password=...;`, `?password=`,
+    `?access_token=`, `?sig=` (Azure SAS);
+  - `credential-on-command-line`: `--password`, `--token`, `--api-key`,
+    `--secret` and `curl -u user:password`;
+  - `credential-authorization-header`: `Authorization: Bearer|Basic|Token ...`;
+  - `credential-in-xml` and `credential-in-xml-setting`: Maven
+    `settings.xml`, `NuGet.Config`, `app.config` and `web.config`;
+  - `netrc-password`, and `credential-file` for files that are credentials
+    whatever they contain: SSH private keys (`id_rsa`, `id_ed25519`, ...),
+    `.git-credentials`, `.pgpass` and keystores (`.p12`, `.pfx`, `.jks`,
+    `.keystore`, `.ppk`, `.kdbx`);
+  - `jwe-token` (any encrypted JWT) and `aws-codeartifact-token`.
+- Not reported, so the rules do not stop ordinary work: values kept elsewhere
+  (`${VAR}`, `$VAR`, `%VAR%`, `{{ template }}`, `<placeholder>`, YAML tags),
+  identifiers and paths (`process.env.DB_PASSWORD`, `/run/secrets/db`),
+  masked values (`********`), examples (`changeme`, `your-token`, `test`,
+  `example`), local hosts and documentation domains in URLs
+  (`localhost`, `example.com`), and `--password-stdin`. On 58 MB of
+  third-party packages the new rules added no finding outside test files and
+  documentation examples.
+- Each line is reported once: where several rules match it, the most specific
+  is kept (for example `aws-codeartifact-token` over `jwe-token`).
+- Conformance fixtures can generate a value each time they run
+  (`{ random: password | alnum | hex | base64url, length | parts, prefix }`),
+  so this repository holds no credential, not even split into pieces. F17 and
+  F18 use them: 33 leaks that must be reported, and 31 look-alikes that must
+  not.
 
 ## 0.2.3
 

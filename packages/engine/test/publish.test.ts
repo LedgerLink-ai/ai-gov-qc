@@ -76,7 +76,7 @@ describe('central reporting', () => {
     const result = await run(options({ 'AGENTS.md': 'Call qa​ first.\n' }));
     await publishEvidence(result, {
       url,
-      token: 'tok-123456789',
+      token: 'tok-123456789', // gitleaks:allow (synthetic)
       timeoutMs: 5000,
       retries: 2,
       runId: 'r-9',

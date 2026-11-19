@@ -61,7 +61,11 @@ describe('the release notes', () => {
       '## Pull requests in this release',
     ])
       expect(notes).toContain(`\n${heading}\n`);
-    expect(notes).not.toMatch(/\{\{/);
+    // No placeholder of the template is left. The CHANGELOG section itself may
+    // mention {{ template }} syntax, so only the template's own names count.
+    expect(notes).not.toMatch(
+      /\{\{\s*(?:version|anchor|repo|sha256|pre_commit|semgrep|gitleaks|changes|pull_requests)\s*\}\}/,
+    );
     expect(notes).toContain(`\`${SHA}\``);
     expect(notes).toContain(`gh release download v${VERSION} --repo LedgerLink-ai/ai-gov-qc`);
     expect(notes).toContain(`npm install -g --ignore-scripts ./ledgerlink-qa-${VERSION}.tgz`);
