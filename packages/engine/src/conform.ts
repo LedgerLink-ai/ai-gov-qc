@@ -350,6 +350,8 @@ function gitSelection(fixture: Fixture, root: string): ApiSelection {
  * mode, as on a CI server other than GitHub Actions; the repository's identity
  * is its origin, an allowlisted LedgerLink-ai repository.
  */
+const TOOL_LOCATION = new Set(['QA_HOME', 'QA_GITLEAKS_BIN', 'QA_SEMGREP_BIN', 'QA_PRE_COMMIT_BIN']);
+
 function runCliGit(
   cliPath: string,
   config: Config,
@@ -357,8 +359,10 @@ function runCliGit(
   root: string,
 ): { observed: Observed[]; errors: string[] } {
   const env: NodeJS.ProcessEnv = {};
+  // Drop everything that changes how qa decides, but keep where its tools are
+  // installed, so the CLI path finds the same scanners as the API path.
   for (const [k, v] of Object.entries(process.env))
-    if (!/^(GITHUB_|RUNNER_|ACTIONS_|QA_|PRE_COMMIT_)/.test(k)) env[k] = v;
+    if (TOOL_LOCATION.has(k) || !/^(GITHUB_|RUNNER_|ACTIONS_|QA_|PRE_COMMIT_)/.test(k)) env[k] = v;
   Object.assign(env, {
     CI: 'true',
     QA_NO_CACHE: '1',
