@@ -11,7 +11,7 @@ Requirements: Node 20 or later, git, Python 3.11 to 3.14, Windows, macOS or
 Linux. The GitHub CLI (`gh`) for verification.
 
 ```bash
-VERSION=0.2.3
+VERSION=0.2.4
 gh release download "v$VERSION" --repo LedgerLink-ai/ai-gov-qc --pattern "ledgerlink-qa-$VERSION.tgz*"
 sha256sum -c "ledgerlink-qa-$VERSION.tgz.sha256"                              # integrity
 gh attestation verify "ledgerlink-qa-$VERSION.tgz" --repo LedgerLink-ai/ai-gov-qc  # built by release.yml from a commit of this repository
@@ -21,7 +21,7 @@ git config --global ledgerlink.assistedBy "<tool>, <model>, <version>"    # "non
 qa doctor                   # in a repository: READY, or what is missing
 ```
 
-On Windows without `sha256sum`: `Get-FileHash ledgerlink-qa-0.2.3.tgz -Algorithm SHA256`
+On Windows without `sha256sum`: `Get-FileHash ledgerlink-qa-0.2.4.tgz -Algorithm SHA256`
 and compare with the `.sha256` file.
 
 **Without access to GitHub or PyPI.** Download the Gitleaks archive named in
@@ -63,6 +63,8 @@ should ignore). `qa baseline` writes `.qa/baseline.sarif` when asked.
 | Local cache                              | `performance.cache`; `--no-cache`, `QA_NO_CACHE=1`, `QA_CACHE_DIR`             | on locally, never in CI |
 | Structured logs                          | `--log-format json`, `QA_LOG_FORMAT=json`; `--log-level`, `QA_LOG_LEVEL`       | text, warnings only     |
 | Central reporting                        | `--report-url`, `QA_REPORT_URL`, `QA_REPORT_TOKEN`, `QA_REPORT_REQUIRED=1`     | off                     |
+| Hook output                              | `QA_HOOK_OUTPUT=stream` (summary last) or `buffer` (summary first, for IDEs)   | stream in a terminal    |
+| Text report detail                       | `--verbose` lists the checks that did not run                                  | counted, not listed     |
 | Oldest compatible engine                 | `min_engine_version`                                                           | 0.2.3                   |
 
 Exit codes: `0` pass, `1` blocking findings, `2` qa could not run a check or
