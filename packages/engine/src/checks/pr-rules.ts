@@ -1,13 +1,13 @@
+import { analyseBranch } from '../conventions';
 import { globMatcher } from '../tags';
 import type { CheckDefinition, Finding, PrPolicy, RunContext } from '../types';
 import { checkTrailers } from './commit-trailer';
+import { branchFindings, conventions } from './conventions';
 
 // Checks on the pull request as a whole (stage 3): run by "qa prepr" before a
-// pull request is opened, and again by the PR gate. Limits come from the `pr`
-// section of policy.yaml.
+// pull request is opened. Limits come from the `pr` section of policy.yaml.
 
 const DEFAULT_PR_POLICY: PrPolicy = {
-  branch_pattern: '(?:^|/)[A-Z][A-Z0-9]+-\\d+(?:$|[-_./])',
   diff_warn_lines: 400,
   diff_max_lines: 1000,
   diff_ignore: ['**/yarn.lock', '**/package-lock.json', '**/pnpm-lock.yaml', '**/*.snap'],
@@ -16,7 +16,7 @@ const DEFAULT_PR_POLICY: PrPolicy = {
 
 export const prPolicy = (ctx: RunContext): PrPolicy => ({ ...DEFAULT_PR_POLICY, ...ctx.config.policy.pr });
 
-/** The branch name: matches policy.pr.branch_pattern and is not the base branch itself. */
+/** The branch name follows the branch convention (conventions.ts) and is not the base branch itself. */
 export function prBranchName(ctx: RunContext, def: CheckDefinition): Finding[] {
   if (!ctx.pr) return [];
   const { branch, base } = ctx.pr;
@@ -35,27 +35,16 @@ export function prBranchName(ctx: RunContext, def: CheckDefinition): Finding[] {
       finding(
         'base-branch',
         `You are on ${branch}, the branch the pull request merges into.`,
-        'Move the commits to a feature branch: git switch -c <TICKET-123-short-description>',
+        'Move the commits to a feature branch: git switch -c feature/<TICKET-123>-<short-description>',
       ),
     ];
-  const pattern = prPolicy(ctx).branch_pattern;
-  if (new RegExp(pattern).test(branch)) return [];
-  return [
-    {
-      ...finding(
-        'no-ticket-key',
-        `Branch "${branch}" has no ticket key, so commit messages are not pre-filled with one.`,
-        'Recommended, not required: name branches "<TICKET-123>-<short-description>", e.g. LCORE-210-limit-invariants; rename with: git branch -m <new-name>',
-      ),
-      level: 'warning',
-    },
-  ];
+  return branchFindings(def.id, analyseBranch(branch, conventions(ctx)));
 }
 
 /**
  * The Assisted-by trailer of every commit in the pull request, for its form
- * only (Development Guideline Policy: no subject format is enforced). The
- * pull request's pr-rules job is what blocks.
+ * only. The subject is checked by pr.commit-messages. The pull request's
+ * pr-rules job is what blocks.
  */
 export function prCommits(ctx: RunContext, def: CheckDefinition): Finding[] {
   if (!ctx.pr) return [];

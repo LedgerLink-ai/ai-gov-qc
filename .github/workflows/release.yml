@@ -6,8 +6,8 @@
 # the version releases nothing. To release: bump the version in both
 # package.json files in the pull request.
 #
-# Developers install it with:
-#   npm install -g <release asset URL or downloaded .tgz>
+# Developers install it as the release notes say (templates/release-notes.md):
+#   npm install -g --ignore-scripts ./ledgerlink-qa-<version>.tgz
 #   qa setup
 #
 # A release that failed (for example a GitHub outage) is retried with
@@ -35,10 +35,12 @@ jobs:
     permissions:
       contents: write # create the tag and the release
       actions: read # download the package from the ci run
+      id-token: write # sign the build provenance attestation (Sigstore, keyless)
+      attestations: write # store the attestation with the repository
     env:
       HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
       - name: is this version released yet?
@@ -54,32 +56,49 @@ jobs:
             echo "release=true" >> "$GITHUB_OUTPUT"
           fi
       - if: steps.version.outputs.release == 'true'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: package
           path: out
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ github.token }}
+      - name: check the package from ci
+        if: steps.version.outputs.release == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          cd out
+          sha256sum -c "ledgerlink-qa-$VERSION.tgz.sha256"
+      # Build provenance: a signed statement that this exact file was built by
+      # this repository's workflows from HEAD_SHA. Installers verify it with
+      # "gh attestation verify".
+      - name: attest build provenance
+        if: steps.version.outputs.release == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: out/ledgerlink-qa-${{ steps.version.outputs.version }}.tgz
+      # The notes are templates/release-notes.md: requirements, where qa is
+      # installed on each OS, install, check, upgrade, uninstall and roll back,
+      # with the CHANGELOG.md section as "What's new". The pull request list is
+      # GitHub's, without pull requests reverted before the release (AIQC-90),
+      # so the release is created without --generate-notes.
       - name: create the release
         if: steps.version.outputs.release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
+          SHA256=$(cut -c1-64 "out/ledgerlink-qa-$VERSION.tgz.sha256")
+          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="v$VERSION" -f target_commitish="$HEAD_SHA" --jq .body > out/pull-requests.md
+          node scripts/release.js --notes "$VERSION" --repo "$GITHUB_REPOSITORY" --sha256 "$SHA256" \
+            --pull-requests out/pull-requests.md > out/notes.md
           cd out
-          sha256sum -c "ledgerlink-qa-$VERSION.tgz.sha256"
-          SHA256=$(cut -c1-64 "ledgerlink-qa-$VERSION.tgz.sha256")
-          URL="https://github.com/$GITHUB_REPOSITORY/releases/download/v$VERSION/ledgerlink-qa-$VERSION.tgz"
-          printf '%s\n' \
-            "## Install (Windows, macOS or Linux; Node 20+, git, Python 3.9 to 3.14)" "" \
-            '```bash' "npm install -g $URL" "qa setup" '```' "" \
-            "SHA-256 of \`ledgerlink-qa-$VERSION.tgz\`: \`$SHA256\`" > notes.md
           gh release create "v$VERSION" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$HEAD_SHA" \
             --title "qa $VERSION" \
             --notes-file notes.md \
-            --generate-notes \
             "ledgerlink-qa-$VERSION.tgz" "ledgerlink-qa-$VERSION.tgz.sha256"
 
       # Optional: also publish to LedgerLink's CodeArtifact npm registry, so
