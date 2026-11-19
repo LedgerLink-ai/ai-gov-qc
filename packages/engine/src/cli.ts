@@ -116,7 +116,7 @@ Usage:
 Selection (pick one):
   --staged              Staged changes (reads the index, i.e. exactly what will be committed)
   --base <ref>          Changes since the merge base with <ref> (what a pull request contains)
-  --files <a,b,...>     These files under --root
+  --files <a,b,...>     These files under --root (relative paths inside --root: no drive letters, no "..")
   --all                 Every file under --root
 
 Options:
@@ -160,10 +160,13 @@ Setup options:
 
 Execution gate: check, precommit, prepare-commit-msg, commit-msg, prepush, prepr, baseline, repo-tool and repo-script do
 nothing (exit 0, no output) unless the repository's origin remote is owned by the organisation and the repository
-is enabled in registry/repositories.yaml. In CI, an identity that cannot be verified is an error (exit 2), and
-so is configuration from --config or QA_CONFIG_DIR. "qa doctor" shows whether QA is enabled for the current
-repository. In CI the baseline is read from the pull request's base, so a pull request cannot baseline its own
-findings.
+is enabled in registry/repositories.yaml. The origin must be on github.com (ssh and scp-like remotes may also use
+ssh.github.com, or an SSH host alias that "ssh -G" resolves to them). In CI, an identity that cannot be verified is
+an error (exit 2) for commands run explicitly; the git hook paths (hook, prepare-commit-msg, commit-msg) skip
+instead. In GitHub Actions, --config, QA_CONFIG_DIR, --as-of, QA_AS_OF, --exclude, --mode local, --actor, QA_ACTOR
+and --repo are refused (exit 2). "qa doctor" shows whether QA is enabled for the current repository. In CI the
+baseline is read from the pull request's base, so a pull request cannot baseline its own findings; without --base
+the working tree's baseline is ignored.
 
 Environment:
   QA_ACTOR              human | agent | ci, as --actor

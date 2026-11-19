@@ -20,11 +20,11 @@ npm run validate
 npm run conform
 ```
 
-| Command            | Expected result                                                                                                                                                                                                                                                                                                                          |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm test`         | `Tests: 56 passed, 56 total`                                                                                                                                                                                                                                                                                                             |
-| `npm run validate` | `Configuration valid` and `7 checks, 11 tags, 4 AI tools, 1 MCP servers, 0 exemptions`                                                                                                                                                                                                                                                   |
-| `npm run conform`  | Every fixture `PASS`, `0 fail, 0 skipped, 0 pending` (a few minutes). Without Gitleaks, F01, F02 and F07–F09 are skipped; without Semgrep, F12; CI runs `npm run conform -- --require-all`, where a skipped or pending fixture fails the run. Each fixture shows `(paths: api, cli)`, meaning both entry points gave identical findings. |
+| Command            | Expected result                                                                                                                                                                                                                                                                                                                            |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `npm test`         | `Tests: 56 passed, 56 total`                                                                                                                                                                                                                                                                                                               |
+| `npm run validate` | `Configuration valid` and `13 checks, 11 tags, 4 AI tools, 1 MCP servers, 0 exemptions`                                                                                                                                                                                                                                                    |
+| `npm run conform`  | All 27 fixtures `PASS`, `0 fail, 0 skipped, 0 pending` (a few minutes). Without Gitleaks, F01, F02 and F07–F09 are skipped; without Semgrep, F12; CI runs `npm run conform -- --require-all`, where a skipped or pending fixture fails the run. Each fixture shows `(paths: api, cli)`, meaning both entry points gave identical findings. |
 
 ## 2. Try each check by hand in a sandbox repository
 
@@ -71,7 +71,7 @@ node packages/engine/bin/qa.js baseline --staged --root ../sandbox/link_core --a
 node packages/engine/bin/qa.js precommit --root ../sandbox/link_core --as-of 2027-01-08
 ```
 
-Expected: `Baselined 2 finding(s)`, then the same two findings as `REPORT` with "Present in the dated baseline", `result: PASS`. The baseline is `../sandbox/link_core/.qa/baseline.sarif`. Delete it to make the findings block again.
+Expected: `Baselined 2 finding(s)`, then the same two findings as `REPORT` with "Present in the dated baseline", `result: PASS`. Only error-level findings that no exemption covers are recorded; notes and warnings never block, so they are left out. An exemption is considered before the baseline: once it expires, its finding blocks even if it is in the baseline. The baseline is `../sandbox/link_core/.qa/baseline.sarif`. Delete it to make the findings block again.
 
 ## 5. Report files (what CI will store as evidence)
 
@@ -152,7 +152,9 @@ folder and every file counts as added (`qa check --all`). With `operations`
 tree is committed on `main` in a git repository, the operations are committed
 on the branch, and both paths read the change from git: the API path with
 the engine's git functions, the CLI path with `qa check --base main` or
-`qa prepr --base main` in CI mode.
+`qa prepr --base main` in CI mode. The CLI path runs with a cleaned
+environment, but keeps `QA_HOME` and the `QA_*_BIN` tool locations, so it
+finds the same scanners as the API path.
 
 ## What is not covered yet
 

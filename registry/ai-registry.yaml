@@ -6,6 +6,11 @@
 version: 1
 updated: 2026-10-22
 
+# trailer_aliases: how a Co-authored-by line is recognised as this tool (it then
+# becomes Assisted-by, and the pull request gets the agent rules). An alias with
+# an @ must equal the co-author's address exactly; any other alias must be a
+# whole word of the co-author's name, or the login of a GitHub no-reply address
+# (<id>+<login>@users.noreply.github.com). Matching ignores case.
 tools:
   - id: claude-code
     name: Claude Code
