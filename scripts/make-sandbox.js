@@ -29,6 +29,14 @@ const PACKAGE = join(SANDBOX, 'qa-package');
 const REMOTE = join(SANDBOX, 'remote', 'link_core.git');
 const REPO = join(SANDBOX, 'link_core');
 const MESSAGES = join(SANDBOX, 'messages');
+// Written by setup; the script deletes ../sandbox only when this file says it made it.
+const MARKER = join(SANDBOX, '.qa-sandbox');
+// The clone stands for this enabled repository in registry/repositories.yaml, so the
+// execution gate lets the hooks run; pushes go to the local bare repository (pushurl).
+const ORIGIN_URL = 'https://github.com/LedgerLink-ai/link_core.git';
+// The script's own git and pre-commit calls read this git configuration instead of the
+// developer's: "pre-commit install" refuses while a global core.hooksPath (qa's) is set.
+const GIT_CONFIG = join(SANDBOX, 'gitconfig');
 
 const ZWSP = String.fromCodePoint(0x200b);
 const RLO = String.fromCodePoint(0x202e);
@@ -261,8 +269,23 @@ const COMMIT_MESSAGES = {
 
 // ---- Helpers ----
 
+/** The environment for the script's own git and pre-commit runs: the sandbox's git configuration only. */
+function sandboxEnv() {
+  return { ...process.env, GIT_CONFIG_GLOBAL: GIT_CONFIG, GIT_CONFIG_NOSYSTEM: '1' };
+}
+
 function git(cwd, ...args) {
-  return execFileSync('git', args, { cwd, stdio: 'pipe' }).toString('utf8').trim();
+  return execFileSync('git', args, { cwd, stdio: 'pipe', env: sandboxEnv() }).toString('utf8').trim();
+}
+
+/** Deletes a folder in ../sandbox, but only one this script made: anything else there is left alone. */
+function removeInSandbox(path) {
+  if (!existsSync(path)) return;
+  if (!existsSync(MARKER))
+    throw new Error(
+      `${SANDBOX} exists but was not made by this script (no ${MARKER}); move or delete it yourself, then run setup again`,
+    );
+  rmSync(path, { recursive: true, force: true });
 }
 
 /** Runs a command with its output shown. Arguments are fixed words; .cmd shims (npm) need a shell on Windows. */
@@ -270,8 +293,8 @@ function sh(cwd, command, args) {
   const line = [command, ...args].join(' ');
   const res =
     process.platform === 'win32'
-      ? spawnSync(line, { cwd, stdio: 'inherit', shell: true })
-      : spawnSync(command, args, { cwd, stdio: 'inherit' });
+      ? spawnSync(line, { cwd, stdio: 'inherit', shell: true, env: sandboxEnv() })
+      : spawnSync(command, args, { cwd, stdio: 'inherit', env: sandboxEnv() });
   if (res.status !== 0) throw new Error(`${line} failed (exit ${res.status})`);
 }
 
@@ -286,7 +309,7 @@ function writeFiles(dir, files) {
 /** Builds the package and unpacks it into ../sandbox/qa-package, as "npm install -g" would. */
 function installPackage() {
   const { tgz, version, sha256 } = buildPackage();
-  rmSync(PACKAGE, { recursive: true, force: true });
+  removeInSandbox(PACKAGE);
   mkdirSync(PACKAGE, { recursive: true });
   // Windows' own tar: Git Bash's GNU tar reads "C:\..." as a remote host.
   const tar =
@@ -319,7 +342,13 @@ function writeMessages() {
 
 function setup() {
   console.log(`Building the sandbox in ${SANDBOX}`);
-  rmSync(SANDBOX, { recursive: true, force: true });
+  removeInSandbox(SANDBOX);
+  mkdirSync(SANDBOX, { recursive: true });
+  writeFileSync(
+    MARKER,
+    'Made by scripts/make-sandbox.js; "npm run sandbox -- setup" deletes and rebuilds this folder.\n',
+  );
+  writeFileSync(GIT_CONFIG, '');
   const release = installPackage();
   console.log(`1/5 Built and unpacked @ledgerlink/qa ${release.version} into ${PACKAGE}`);
 
@@ -331,14 +360,15 @@ function setup() {
   git(REPO, 'config', 'user.name', 'qa sandbox developer');
   git(REPO, 'config', 'commit.gpgsign', 'false');
   git(REPO, 'config', 'core.autocrlf', 'false');
-  git(REPO, 'remote', 'add', 'origin', REMOTE.split('\\').join('/'));
+  git(REPO, 'remote', 'add', 'origin', ORIGIN_URL);
+  git(REPO, 'config', 'remote.origin.pushurl', REMOTE.split('\\').join('/'));
   writeFiles(REPO, { ...BASE_FILES, '.pre-commit-config.yaml': renderConfig(release) });
   console.log('2/5 Created the link_core clone and its "GitHub" remote');
 
   console.log("3/5 Installing the clone's ESLint and Prettier (npm install)");
   sh(REPO, 'npm', ['install', '--no-audit', '--no-fund', '--loglevel=error']);
   git(REPO, 'add', '-A');
-  git(REPO, 'commit', '-q', '-m', 'chore: initial commit');
+  git(REPO, 'commit', '-q', '--no-verify', '-m', 'chore: initial commit');
   git(REPO, 'push', '-q', '-u', 'origin', 'main');
 
   console.log('4/5 Connecting the hooks: pre-commit install (pre-commit, prepare-commit-msg, pre-push)');
@@ -351,6 +381,7 @@ function setup() {
 
 function refresh() {
   if (!existsSync(join(REPO, '.git'))) return setup();
+  if (!existsSync(GIT_CONFIG)) writeFileSync(GIT_CONFIG, '');
   const release = installPackage();
   // Drop whatever a scenario left staged, so only a configuration change is committed.
   git(REPO, 'checkout', '-q', '-f', '-B', 'main', 'origin/main');

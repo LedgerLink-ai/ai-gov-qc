@@ -1,8 +1,12 @@
-# Hooks this repository provides to LedgerLink repositories (AI Code Review
-# implementation, section 2). Each repository pins this repository by tag in its
-# .pre-commit-config.yaml; start from templates/pre-commit-config.yaml.
-# pre-commit installs the qa engine into its own environment from the tagged
-# source, so every developer runs the same engine and rules.
+# Hook definitions for the qa engine (AI Code Review implementation, section 2).
+# They are not installed by pre-commit from this repository's source: the
+# built engine (dist/) is not committed and there is no prepare script, so a
+# "repo: <this repository>" entry would install no working qa. qa is installed
+# once per machine from the released package (npm install -g
+# @ledgerlink/qa@<version>, or the .tgz from the release) and "qa setup"
+# connects the hooks for every repository, with the default configuration
+# templates/pre-commit-config.yaml ("repo: local", "language: system",
+# "entry: qa --require <version> ..."). These entries document the same hooks.
 
 - id: qa-precommit
   name: 'qa: secrets, agent instruction files, MCP allowlist, protected paths, branch name'
