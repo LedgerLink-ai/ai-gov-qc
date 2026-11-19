@@ -341,7 +341,9 @@ describeBuilt('hooks end to end', () => {
       writeFileSync(join(s.dir, 'inc.gitconfig'), '[core]\n\thooksPath = /somewhere/else\n');
       const res = s.qa(...SETUP);
       expect(res.status).toBe(1);
-      expect(res.stdout).toMatch(/FAIL\s+global hooks\s+git's core\.hooksPath is already set to "\/somewhere\/else"/);
+      expect(res.stdout).toMatch(
+        /FAIL\s+global hooks\s+git's global core\.hooksPath is already "\/somewhere\/else" \(global, file:\S*inc\.gitconfig\)/,
+      );
       expect(s.global()).not.toContain('hooksPath');
     });
 
@@ -349,7 +351,7 @@ describeBuilt('hooks end to end', () => {
       const s = setupIn('m3-system', '', '[core]\n\thooksPath = /system/hooks\n');
       const res = s.qa(...SETUP);
       expect(res.status).toBe(1);
-      expect(res.stdout).toContain('"/system/hooks" (system');
+      expect(res.stdout).toContain(`git's system core.hooksPath is already "/system/hooks" (system, file:`);
     });
 
     it('connects the hooks, and doctor fails once an include overrides them', () => {
