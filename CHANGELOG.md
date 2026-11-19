@@ -11,7 +11,137 @@ changing its hooks.
 
 ## Unreleased
 
-Pull request gate and release trust
+Upgrade notes
+
+- Install the package and run `qa setup` again on every machine, so the new
+  hook scripts are written. Setup now refuses when a system or global scope
+  (or a file it includes) sets `core.hooksPath` to anything but qa's; remove
+  that setting first. `qa doctor` names the scope and file of the setting git
+  uses.
+- **Regenerate `.qa/baseline.sarif`** (`qa baseline`) in every repository that
+  has one. Gitleaks fingerprints are now a hash of the rule and the matched
+  secret instead of the line, and `encoded-blob` fingerprints a hash of the
+  blob, so existing baseline entries for Gitleaks and `encoded-blob` findings
+  no longer match, and those findings block once their check is in block
+  mode. `qa baseline` now records only error-level findings that no exemption
+  covers.
+- `block_from` in `policy.yaml` is only valid with `mode: report`; a check
+  with `mode: block` and `block_from` is rejected. `block_from`, exemption
+  `expires` and `--as-of` must be real calendar dates (`YYYY-MM-DD`, UTC).
+  Path tags and exemptions must name repositories in
+  `registry/repositories.yaml`.
+- Repositories that call `qa-pr.yml`: re-copy `templates/qa-pr-caller.yml`
+  (commit pin, `QA_REPORT_TOKEN` only). The gate's checkout needs
+  `fetch-depth: 0`; `qa-pr.yml` has it.
+- Administrators: apply this repository's rulesets in `config/github/` and
+  enable release immutability (docs/ENFORCEMENT.md, docs/OPERATIONS.md).
+- A sandbox made before this release (`../sandbox` without a `.qa-sandbox`
+  marker) must be deleted by hand once before `npm run sandbox -- setup`.
+
+Security fixes
+
+- In-repository suppressions are ignored: `gitleaks:allow` comments,
+  `.gitleaksignore`, `nosemgrep` comments and `.semgrepignore`; `GITLEAKS_*`
+  variables are dropped. Exemptions and the baseline are the only
+  suppressions. Scanner control files (`.gitleaksignore`, `.gitleaks.toml`,
+  `.semgrepignore`, `.semgrep.yml`, `.semgrep.yaml`, `.semgrep/`) are never
+  copied to the scan directory.
+- Exemptions are considered before the baseline: an expired exemption blocks
+  even when the finding is baselined.
+- `paths.protected` checks the old path of a renamed or moved file (moving a
+  protected file away is reported), runs for changes that only delete files
+  (`include_deleted` in `checks.yaml`), and matches globs ignoring case.
+- A file a native check applies to but cannot read as text (binary, over
+  2 MB, unsupported encoding) is an `unscannable` finding: an error in CI, a
+  warning locally. UTF-16 with a byte order mark is read, and a UTF-8 byte
+  order mark is removed.
+- The gate requires a GitHub origin: https, http and `git://` must name
+  github.com; ssh and scp-like remotes may name github.com, ssh.github.com or
+  an SSH alias that `ssh -G` resolves to them. An alias that cannot be
+  resolved is not verified (skipped locally, exit 2 in CI). Repository names
+  are matched ignoring case, and the run uses the allowlist's spelling.
+- In GitHub Actions, `--as-of`/`QA_AS_OF`, `--exclude`, `--mode local`,
+  `--actor`/`QA_ACTOR` and `--repo` are refused (exit 2), as `--config`
+  already was. In CI without `--base`, the working-tree baseline is ignored.
+- `--files` refuses absolute paths, drive letters and `..`.
+- Credential scrubbing also removes names ending in `KEY` or `PASS`,
+  containing `_KEY_`, starting with `KEY_`, or containing `MNEMONIC`, `SEED`
+  or `PRIVATE` (`GIT_*` and `PYTHONHASHSEED` are kept).
+- Dates are UTC, so every machine agrees when a date is reached.
+- SARIF URIs are percent-encoded. The unused `release` scope is removed.
+
+Detection
+
+- Pull request history: in `qa prepr` and the gate, Gitleaks also scans the
+  pull request's commits (merge base..HEAD), outside the result cache and
+  even when no file changed. Findings name the commit, never the value. No
+  merge base is an engine error (fetch the full history).
+- The `bip39-mnemonic` rule is case-insensitive and also catches JSON arrays,
+  numbered lists, YAML lists and hyphen-joined words (still 12 to 24
+  consecutive wordlist words).
+- New Gitleaks rules: `evm-private-key-call` (a 64-hex key passed to
+  `new Wallet()`, `privateKeyToAccount()` or a Hardhat accounts list) and
+  `evm-private-key-name` (a `0x` key assigned to a signer, `pk` or key name),
+  both with an entropy floor.
+- MCP allowlist: `mcpServers`, `servers` and `mcp.servers` are all checked; a
+  key that is present but not an object is an error. Only `-y`, `--yes`,
+  `--quiet` and `--silent` may precede the package (`unsafe-runner-flag`);
+  env variables that redirect a registry or index or inject code
+  (`npm_config_*`, `*REGISTRY*`, `NODE_OPTIONS`, `PIP_INDEX_URL` and the
+  like) are `unsafe-env`. New locations: `**/.vscode/mcp.json`,
+  `.vscode/settings.json`, `.cursor/mcp.json`, `.gemini/settings.json`,
+  `.roo/mcp.json`, `.amazonq/mcp.json` and `.codex/config.toml` (a minimal
+  parser that fails closed). Messages show only a URL's scheme and host and
+  the command's name. A UTF-8 byte order mark is accepted.
+- Content lint flags more hidden characters: bidi marks, invisible operators,
+  Hangul fillers, variation selectors (one U+FE0E or U+FE0F after an emoji is
+  allowed), line and paragraph separators and interlinear annotation.
+  Negation is judged per clause, and a comma no longer ends a clause. New
+  bypass phrases: `SKIP=`, `HUSKY=0`, `git commit -n`, abbreviated
+  `--no-verify`, `core.hooksPath=/dev/null` and disabling a named hook. In
+  READMEs phrase matches are warnings, and "To skip ..." descriptions are not
+  flagged.
+- The `ai-config` tag also covers AGENTS.override.md, CLAUDE.local.md,
+  GEMINI.md, `.cursorrules`, `.windsurfrules`, `.windsurf/`, `.clinerules`,
+  `.roo/`, `.roomodes`, `.gemini/`, `.codex/`, `.amazonq/`,
+  `.github/chatmodes/`, `.github/agents/`, `.github/prompts/`,
+  `**/.vscode/mcp.json` and `.vscode/settings.json`.
+- Protected paths: the `ai-config` tag (agents may not edit AGENTS.md,
+  CLAUDE.md, .mcp.json, .cursor/ and the like; humans get a note for
+  code-owner review), `.github/**`, `**/secrets/**`, `**/.gitleaksignore`,
+  `**/.gitleaks.toml` and `**/.semgrepignore`. `.env.*` keeps covering
+  `.env.example`.
+
+Hooks
+
+- The repository's own hook (Git LFS and the like) runs, with the same input,
+  even when qa errors or refuses; its exit code still counts.
+- qa's own problems never block a commit: a bad `QA_LOG_LEVEL` or
+  `QA_LOG_FORMAT` gives a warning and the defaults; a missing or broken
+  `dist/` gives a warning (hook calls exit 0, other commands exit 2 with
+  reinstall instructions); an incompatible `--require` never blocks
+  prepare-commit-msg. `CI` set in a developer's shell no longer makes the
+  local hook paths (`hook`, `prepare-commit-msg`, `commit-msg`) fail closed;
+  `check`, `precommit`, `prepush`, `prepr` and `baseline` run explicitly
+  still do.
+- pre-commit gets a `PATH` that starts with a qa launcher for the running
+  install (`<qa home>/shims/<id>/qa` and `qa.cmd`) and node's directory, so
+  `language: system` hooks find qa in GUI git clients.
+- `qa setup` reads every `core.hooksPath` git uses outside a repository
+  (system, global and included files), refuses when one is not qa's (naming
+  its scope and origin) and checks the effective value after writing.
+  `qa doctor` shows the effective value with its scope and origin and fails
+  when another setting overrides qa's.
+- prepare-commit-msg leaves rebased, cherry-picked and reverted commits and
+  commits on a detached HEAD as they are. Comment lines follow
+  `core.commentChar` / `core.commentString`.
+- Co-authored-by to Assisted-by: an alias with an `@` must be the co-author's
+  exact address; any other alias must be a whole word of the name or the
+  login of a GitHub no-reply address.
+- A pass-through hook script copied into `.git/hooks` no longer runs itself
+  for ever.
+
+CI and release
 
 - The gate verifies the qa package's attestation was signed by `release.yml`
   running for `refs/heads/main` on a GitHub-hosted runner
@@ -27,38 +157,44 @@ Pull request gate and release trust
   decides.
 - In CI, `qa prepr` ignores a coverage summary committed to the repository
   ("not coverage produced in this run"); locally nothing changes.
-
-Policy
-
-- Protected paths: the `ai-config` tag (agents may not edit AGENTS.md,
-  CLAUDE.md, .mcp.json, .cursor/ and the like; humans get a note for
-  code-owner review), `.github/**`, `**/secrets/**`, `**/.gitleaksignore`,
-  `**/.gitleaks.toml` and `**/.semgrepignore`. `.env.*` keeps covering
-  `.env.example`.
-
-Conformance
-
-- Fixtures can rename and delete files and describe a pull request (branch,
-  commits, coverage); such fixtures run from a git repository on both paths.
-  New fixtures F17 to F25: rename and deletion of protected paths, an agent
-  editing AI configuration, and `pr.branch-name`, `pr.commits`,
-  `pr.commit-messages`, `pr.diff-size` and `tests.coverage`.
-- `qa conform --require-all` fails on a skipped or pending fixture; CI uses
-  it. F00 is now a human change (agents may no longer edit AI configuration).
-
-Repository
-
 - Rulesets for this repository in `config/github/`: `main` and `dev` need one
   approving code-owner review (stale approvals dismissed); release tags
-  cannot be created, moved or deleted except by GitHub Actions. An
-  administrator applies them, and enables release immutability
-  (docs/ENFORCEMENT.md, docs/OPERATIONS.md).
+  cannot be created, moved or deleted except by GitHub Actions.
+- Conformance: 27 fixtures. Fixtures can rename and delete files and describe
+  a pull request (branch, commits, coverage); such fixtures run from a git
+  repository on both paths. New fixtures F17 to F25: rename and deletion of
+  protected paths, an agent editing AI configuration, and `pr.branch-name`,
+  `pr.commits`, `pr.commit-messages`, `pr.diff-size` and `tests.coverage`.
+  F00 is now a human change. `qa conform --require-all` fails on a skipped or
+  pending fixture; CI uses it. The CLI path keeps `QA_HOME` and the
+  `QA_*_BIN` tool locations, so it finds the same scanners as the API path.
+- The sandbox (`scripts/make-sandbox.js`) runs the hooks: the clone's origin
+  is `https://github.com/LedgerLink-ai/link_core.git`, with pushes going to
+  the local bare repository (`pushurl`); its git and pre-commit calls use
+  `../sandbox/gitconfig`; `../sandbox` is deleted only when it has the
+  `.qa-sandbox` marker. `.pre-commit-hooks.yaml` names the real install
+  route.
 - picomatch 4.0.7.
 - Tests: the cache performance guard compares the warm run with the cold one
   instead of a fixed time (`QA_PERF_BUDGET_MS` sets the cap); the global
   hooks tests allow slower git commands (`QA_TEST_GIT_TIMEOUT_MS`).
-- Documentation: repository location and status in README.md; the
-  commit-msg hook in PRECOMMIT.md and DECISIONS.md.
+
+Docs
+
+- README.md: repository location and status; how a run decides (exemptions
+  before the baseline, dates, `unscannable`, renames and deletions,
+  `include_deleted`); the GitHub origin check.
+- docs/SECURITY.md: threat model rows for in-repository suppressions,
+  unreadable files, history scanning, Actions overrides, `--files`,
+  credential names and the hook paths in CI.
+- docs/ENFORCEMENT.md: gate pins, rulesets, history scanning and the only
+  suppressions.
+- docs/PRECOMMIT.md: the commit-msg hook, new Gitleaks rules, the AI
+  configuration checks, setup and `core.hooksPath`, commit message handling,
+  the sandbox.
+- docs/OPERATIONS.md, docs/PACKAGE.md, docs/TESTING.md and docs/DECISIONS.md:
+  the pinned verify command, release immutability, what `qa setup` writes,
+  fixtures, and the open point on a maximum exemption lifetime.
 
 ## 0.2.3
 

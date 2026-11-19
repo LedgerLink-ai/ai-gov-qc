@@ -41,10 +41,16 @@ does not already require it), add the repository to
 release qa (the allowlist ships inside the package).
 
 **What qa writes.** `qa setup`: `~/.ledgerlink-qa` (or `QA_HOME`), including
-the hook scripts in `<qa home>/hooks`, and git's global `core.hooksPath`
-pointing at them, only if it is unset or already qa's (`qa setup
---uninstall` removes both; `--no-global-hooks` sets up the older per-clone
-git template instead). Hooks: nothing in the working tree. In a repository
+the hook scripts in `<qa home>/hooks`, the `qa` launchers that the hooks put
+first on `PATH` for pre-commit in `<qa home>/shims`, and git's global
+`core.hooksPath` pointing at the hooks, only if no system or global scope (or
+file they include) sets it to anything else (`qa setup --uninstall` removes
+the hooks and the setting; `--no-global-hooks` sets up the older per-clone
+git template instead). Setup names the scope and file of a foreign setting,
+and after writing checks that qa's value is the one git uses; `qa doctor`
+shows the value in use with its scope and file, and fails when another
+setting overrides qa's. After installing a new release, run `qa setup` again
+so the hook scripts are rewritten. Hooks: nothing in the working tree. In a repository
 without its own `.pre-commit-config.yaml`, the default configuration is copied
 to `.git/ledgerlink-qa/pre-commit-config.yaml` (git metadata, never committed),
 because pre-commit cannot use a configuration on another drive on Windows. The

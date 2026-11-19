@@ -41,8 +41,12 @@ pull request into a protected branch of an opted-in repository:
    engine refuses `--config` and `QA_CONFIG_DIR`, takes the repository's
    identity from the Actions environment (only allowlisted LedgerLink-ai
    repositories run; forks never do) and reads the baseline from the base
-   branch. Secrets are scanned in the files the pull request changes and in
-   its history (`base..HEAD`; the checkout has `fetch-depth: 0`). The agent
+   branch. `--as-of`/`QA_AS_OF`, `--exclude`, `--mode local`,
+   `--actor`/`QA_ACTOR` and `--repo` are refused too. Secrets are scanned in
+   the files the pull request changes and in its history (merge base..HEAD,
+   outside the result cache, even when no file changed; the checkout has
+   `fetch-depth: 0`, and without a merge base the run is an engine error).
+   A history finding names the commit, never the value. The agent
    rules apply when the author is a registered agent or when any commit
    declares AI assistance (an `Assisted-by` trailer, or a `Co-authored-by`
    naming an AI tool of the registry). Coverage counts only when the run
@@ -154,6 +158,12 @@ access, or code-owner review cannot be satisfied.
 | Repository ruleset (Option B)   | Repository admin role, through a pull request                                                               | Ruleset insights, audit log            |
 | A finding in a repository       | An exemption in `exemptions.yaml` (code-owner review, expiry date) or the dated baseline on the base branch | This repository's history              |
 | A check, organisation-wide      | `policy.yaml` (`mode: off` / `report`), reviewed by the Solution Architect                                  | This repository's history              |
+
+Suppressions inside the checked repository do not count: `gitleaks:allow`
+and `nosemgrep` comments, `.gitleaksignore` and `.semgrepignore` are ignored,
+and scanner configuration files from the change never reach the scan. An
+exemption in `exemptions.yaml` and the dated baseline are the only
+suppressions.
 
 ## Checking it works
 
