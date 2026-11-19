@@ -6,6 +6,7 @@ import { parse as parseYaml } from 'yaml';
 import { NATIVE_CHECKS } from './checks';
 import { TOOL_ADAPTERS } from './adapters/tools';
 import { DEFAULT_CONVENTIONS, templateProblems } from './conventions';
+import { isCalendarDate } from './policy';
 import { ENGINE_VERSION } from './version';
 import {
   ConfigError,
@@ -215,6 +216,29 @@ export function crossValidate(config: Omit<Config, 'hashes' | 'dir'>): string[] 
     if (exemptionIds.has(ex.id)) problems.push(`exemptions.yaml: duplicate id ${ex.id}`);
     exemptionIds.add(ex.id);
     if (!checkIds.has(ex.check)) problems.push(`exemptions.yaml: ${ex.id} names unknown check ${ex.check}`);
+    if (ex.repo !== '*' && !repoNames.has(ex.repo.toLowerCase()))
+      problems.push(`exemptions.yaml: ${ex.id} names repository ${ex.repo}, which is not in repositories.yaml`);
+    if (!isCalendarDate(ex.expires))
+      problems.push(`exemptions.yaml: ${ex.id} expires on ${ex.expires}, which is not a calendar date`);
+  }
+  // Path tags name repositories the engine may run in; a misspelt name would
+  // silently tag nothing.
+  for (const [tag, def] of Object.entries(config.pathTags.tags)) {
+    for (const name of Object.keys(def.paths))
+      if (name !== '*' && !repoNames.has(name.toLowerCase()))
+        problems.push(`path-tags.yaml: ${tag} names repository ${name}, which is not in repositories.yaml`);
+  }
+  // A check reports until block_from, then blocks (P9). block_from therefore
+  // belongs to mode report: with mode block it would be ignored before the
+  // date, which reads as a promise the engine does not keep.
+  for (const [id, entry] of Object.entries(config.policy.checks)) {
+    if (entry.block_from === undefined) continue;
+    if (!isCalendarDate(entry.block_from))
+      problems.push(`policy.yaml: checks.${id}.block_from ${entry.block_from} is not a calendar date`);
+    if (entry.mode === 'block')
+      problems.push(
+        `policy.yaml: checks.${id} has mode block and a block_from date; use mode report with block_from, or mode block alone`,
+      );
   }
   return problems;
 }
@@ -256,4 +280,14 @@ export function loadConfig(explicitDir?: string): Config {
     gitleaksConfig: existsSync(gitleaksConfig) ? gitleaksConfig : undefined,
     semgrepConfig: existsSync(semgrepConfig) ? semgrepConfig : undefined,
   };
+}
+
+/**
+ * The allowlist's spelling of a repository name. GitHub names are
+ * case-insensitive and the execution gate compares them so; path tags,
+ * exemptions and conventions are keyed by the allowlist's spelling, so a run
+ * uses that one whatever case the origin URL or --repo used.
+ */
+export function canonicalRepoName(allowlist: RepositoryAllowlist, name: string): string {
+  return allowlist.repositories.find((r) => r.name.toLowerCase() === name.toLowerCase())?.name ?? name;
 }

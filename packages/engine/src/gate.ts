@@ -2,6 +2,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { scrubbedEnv } from './exec';
 import type { RepositoryAllowlist } from './types';
 
 /**
@@ -34,27 +35,98 @@ export interface GateEnv {
 
 const SEGMENT = /^[A-Za-z0-9._-]+$/;
 
+/** A remote URL taken apart: the host it names and how it is reached. */
+export interface RemoteInfo extends RepoIdentity {
+  host: string;
+  /** https, http and git:// name the host directly; ssh and scp-like may name an ~/.ssh/config alias. */
+  transport: 'http' | 'ssh';
+}
+
 /**
- * Owner and name from a git remote URL (https, ssh, scp-like, git://), or
- * undefined for anything that is not a plain host/owner/repo form: local
- * paths, extra path segments, empty or odd characters.
+ * Host, owner and name from a git remote URL (https, ssh, scp-like, git://),
+ * or undefined for anything that is not a plain host/owner/repo form: local
+ * paths, extra path segments, empty or odd characters. Says nothing about
+ * whether the host is GitHub; see parseRemoteUrl.
  */
-export function parseRemoteUrl(url: string): RepoIdentity | undefined {
+export function parseRemote(url: string): RemoteInfo | undefined {
   const text = url.trim();
   let path: string | undefined;
-  const scp = /^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:(?!\/)(.+)$/.exec(text);
-  if (scp) path = scp[1];
+  let host: string | undefined;
+  let transport: RemoteInfo['transport'] = 'ssh';
+  const scp = /^[A-Za-z0-9._-]+@([A-Za-z0-9.-]+):(?!\/)(.+)$/.exec(text);
+  if (scp) [, host, path] = scp;
   else {
-    const m = /^(?:https?|ssh|git):\/\/(?:[^/@\s]+@)?[A-Za-z0-9.-]+(?::\d+)?\/(.+)$/.exec(text);
-    if (m) path = m[1];
+    const m = /^(https?|ssh|git):\/\/(?:[^/@\s]+@)?([A-Za-z0-9.-]+)(?::\d+)?\/(.+)$/.exec(text);
+    if (m) {
+      [, , host, path] = m;
+      transport = m[1] === 'ssh' ? 'ssh' : 'http';
+    }
   }
-  if (path === undefined) return undefined;
+  if (path === undefined || host === undefined || host.startsWith('-') || host.startsWith('.')) return undefined;
   const parts = path
     .replace(/\/+$/, '')
     .replace(/\.git$/, '')
     .split('/');
   if (parts.length !== 2 || !parts.every((p) => SEGMENT.test(p) && p !== '.' && p !== '..')) return undefined;
-  return { owner: parts[0], name: parts[1] };
+  return { owner: parts[0], name: parts[1], host: host.toLowerCase(), transport };
+}
+
+/** Hosts that are GitHub: github.com, and for SSH also ssh.github.com (SSH over port 443). */
+const GITHUB_HOSTS = { http: ['github.com'], ssh: ['github.com', 'ssh.github.com'] } as const;
+
+/** The real host name an SSH host (possibly an ~/.ssh/config alias) connects to, or undefined. */
+export type SshHostResolver = (host: string) => string | undefined;
+
+const SSH_RESOLVE_TIMEOUT_MS = 5_000;
+const sshResolved = new Map<string, string | undefined>();
+
+/**
+ * Resolves an SSH host alias with "ssh -G <host>" (prints the configuration
+ * ssh would use, without connecting): the "hostname" line. Run without a
+ * shell, with a short time limit and no credential variables. Undefined when
+ * ssh is missing, fails or prints no host name: the caller then treats the
+ * origin as not verified (fail closed).
+ */
+export function sshHostname(host: string): string | undefined {
+  if (!/^[A-Za-z0-9][A-Za-z0-9.-]*$/.test(host)) return undefined;
+  if (sshResolved.has(host)) return sshResolved.get(host);
+  let resolved: string | undefined;
+  try {
+    const res = spawnSync('ssh', ['-G', '--', host], {
+      encoding: 'utf8',
+      timeout: SSH_RESOLVE_TIMEOUT_MS,
+      killSignal: 'SIGKILL',
+      env: scrubbedEnv(),
+      stdio: ['ignore', 'pipe', 'ignore'],
+      windowsHide: true,
+    });
+    if (!res.error && res.status === 0)
+      resolved = /^hostname[ \t]+(\S+)[ \t]*\r?$/im.exec(res.stdout ?? '')?.[1]?.toLowerCase();
+  } catch {
+    resolved = undefined;
+  }
+  sshResolved.set(host, resolved);
+  return resolved;
+}
+
+/**
+ * Owner and name from a git remote URL that points at GitHub, else undefined.
+ *
+ * - https/http/git:// URLs must name github.com itself.
+ * - ssh:// and scp-like URLs may name github.com or ssh.github.com, or an SSH
+ *   host alias (git@github-ledgerlink:LedgerLink-ai/link_core.git, where
+ *   ~/.ssh/config maps github-ledgerlink to github.com). An alias counts only
+ *   when "ssh -G" resolves it to github.com or ssh.github.com; one that cannot
+ *   be resolved is not GitHub (fail closed: skipped locally, exit 2 in CI).
+ */
+export function parseRemoteUrl(url: string, resolveSshHost: SshHostResolver = sshHostname): RepoIdentity | undefined {
+  const remote = parseRemote(url);
+  if (!remote) return undefined;
+  const hosts: readonly string[] = GITHUB_HOSTS[remote.transport];
+  let host = remote.host;
+  if (!hosts.includes(host) && remote.transport === 'ssh') host = resolveSshHost(host)?.toLowerCase() ?? '';
+  if (!hosts.includes(host)) return undefined;
+  return { owner: remote.owner, name: remote.name };
 }
 
 /** Case-insensitive, as GitHub treats owner and repository names. */
@@ -80,7 +152,7 @@ function insideGitWorkTree(root: string): boolean {
 }
 
 /** Conformance fixtures are loose folders in the temp directory, never a git work tree. */
-function isConformanceRoot(root: string, env: GateEnv): boolean {
+export function isConformanceRoot(root: string, env: GateEnv): boolean {
   if (env.QA_CONFORMANCE !== '1') return false;
   // Compare real paths: on macOS the temp directory is /var/..., a link to /private/var/...;
   // on Windows it can be an 8.3 short name.
@@ -182,7 +254,12 @@ export function configSourceProblem(
 }
 
 /** Decide whether the engine may run for the repository at `root`. */
-export function gate(allowlist: RepositoryAllowlist, root: string, env: GateEnv = process.env): GateDecision {
+export function gate(
+  allowlist: RepositoryAllowlist,
+  root: string,
+  env: GateEnv = process.env,
+  resolveSshHost: SshHostResolver = sshHostname,
+): GateDecision {
   // Conformance fixtures run in CI too (GitHub Actions included), so this comes first.
   if (isConformanceRoot(root, env)) return { run: true, repo: { owner: allowlist.org, name: 'conformance' } };
 
@@ -195,10 +272,10 @@ export function gate(allowlist: RepositoryAllowlist, root: string, env: GateEnv 
 
   const failClosed = env.CI !== undefined && env.CI !== '' && env.CI !== 'false' && env.CI !== '0';
   const url = insideGitWorkTree(root) ? git(root, ['remote', 'get-url', 'origin']) : undefined;
-  const id = url ? parseRemoteUrl(url) : undefined;
+  const id = url ? parseRemoteUrl(url, resolveSshHost) : undefined;
   if (!id) {
     const reason = url
-      ? 'the origin remote is not a recognised GitHub owner/repository URL'
+      ? 'the origin remote is not a recognised GitHub owner/repository URL (github.com, or an SSH host alias for it)'
       : 'no git origin remote to verify the repository against';
     return failClosed ? { run: false, failClosed: true, reason } : { run: false, reason };
   }
