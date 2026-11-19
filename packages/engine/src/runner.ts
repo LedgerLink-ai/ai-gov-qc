@@ -97,7 +97,7 @@ function buildContext(opts: RunOptions): RunContext {
         extraMatchers.set(def.id, extra);
       }
       return opts.changedFiles.filter((f) => {
-        if (f.status === 'D') return false;
+        if (f.status === 'D' && !def.include_deleted) return false;
         if (def.tags === 'all') return true;
         const own = fileTags.get(f.path);
         return def.tags.some((t) => own?.has(t)) || extra(f.path);
