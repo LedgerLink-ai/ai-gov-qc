@@ -147,7 +147,6 @@ describe('pinned dependencies and hook versions', () => {
 
   it('every GitHub Action and reusable workflow is pinned to a full commit SHA, templates included', () => {
     const files = workflowFiles();
-    expect(files.some((f) => f.endsWith('qa-pr-caller.yml'))).toBe(true);
     for (const file of files) {
       const text = readFileSync(file, 'utf8');
       for (const m of text.matchAll(/^\s*(?:-\s*)?uses:\s*(\S+)/gm)) {
@@ -186,38 +185,6 @@ describe('pinned dependencies and hook versions', () => {
         });
       }
     }
-  });
-
-  it('the caller template passes only the report token, never every secret', () => {
-    const caller = parseYaml(readFileSync(join(templatesDir, 'qa-pr-caller.yml'), 'utf8')) as {
-      jobs: Record<string, { uses?: string; secrets?: unknown }>;
-    };
-    const called = parseYaml(readFileSync(join(workflowsDir, 'qa-pr.yml'), 'utf8')) as {
-      on: { workflow_call: { secrets: Record<string, unknown> } };
-    };
-    const declared = Object.keys(called.on.workflow_call.secrets);
-    for (const job of Object.values(caller.jobs)) {
-      expect(job.secrets).not.toBe('inherit');
-      expect(typeof job.secrets).toBe('object');
-      for (const name of Object.keys(job.secrets as object)) expect(declared).toContain(name);
-    }
-  });
-
-  it('the gate verifies the qa package was attested by release.yml on main, on a GitHub-hosted runner', () => {
-    const text = readFileSync(join(workflowsDir, 'qa-pr.yml'), 'utf8');
-    const verify = text.slice(text.indexOf('gh attestation verify'), text.indexOf('npm install -g'));
-    expect(verify).toMatch(/--signer-workflow "\$QA_REPOSITORY\/\.github\/workflows\/release\.yml"/);
-    expect(verify).toMatch(/--source-ref refs\/heads\/main/);
-    expect(verify).toMatch(/--deny-self-hosted-runners/);
-  });
-
-  it('the gate checks out the full history (secrets and commits are read over base..HEAD)', () => {
-    const wf = parseYaml(readFileSync(join(workflowsDir, 'qa-pr.yml'), 'utf8')) as {
-      jobs: { qa: { steps: Array<{ uses?: string; with?: Record<string, unknown> }> } };
-    };
-    const checkout = wf.jobs.qa.steps.find((s) => s.uses?.startsWith('actions/checkout@'));
-    expect(checkout?.with?.['fetch-depth']).toBe(0);
-    expect(checkout?.with?.['persist-credentials']).toBe(false);
   });
 
   it('the hook template pins every hook repository by commit SHA', () => {
@@ -291,38 +258,12 @@ describe('the release check', () => {
   const release = require('../../../scripts/release.js') as {
     checkVersions: (v?: string) => string;
     changelogSection: (v: string, text?: string) => string | undefined;
-    workflowPinProblems: (
-      text: string,
-      file: string,
-      version: string,
-      resolveTag?: (tag: string) => string | undefined,
-    ) => string[];
   };
 
   it('passes for this repository: versions, template pins, workflow defaults and changelog agree', () => {
     const version = (JSON.parse(readFileSync(join(CONFIG_DIR, 'package.json'), 'utf8')) as { version: string }).version;
     expect(release.checkVersions()).toBe(version);
     expect(release.changelogSection(version)).toBeTruthy();
-  });
-
-  it('requires the caller template to pin qa-pr.yml by commit SHA, with its release in a comment', () => {
-    const sha = '0e1550f28a60b874fdcdbad8d353c20db55e46a4';
-    const other = '036ce1627da6000000000000000000000000beef';
-    const uses = (ref: string): string => `    uses: LedgerLink-ai/ai-gov-qc/.github/workflows/qa-pr.yml@${ref}
-`;
-    const tags = (tag: string): string | undefined => ({ 'v0.2.3': sha })[tag];
-    const problems = (ref: string, version = '0.2.4'): string[] =>
-      release.workflowPinProblems(uses(ref), 'caller.yml', version, tags);
-    expect(problems(`${sha} # v0.2.3`)).toEqual([]);
-    expect(problems(`${sha} # v0.2.3`, '0.2.3')).toEqual([]);
-    expect(problems('v0.2.3')).toEqual([expect.stringMatching(/not a 40-character commit SHA/)]);
-    expect(problems('main')).toEqual([expect.stringMatching(/not a 40-character commit SHA/)]);
-    expect(problems(sha)).toEqual([expect.stringMatching(/without a "# v<version>" comment/)]);
-    expect(problems(`${sha} # v0.3.0`)).toEqual([expect.stringMatching(/newer than this package/)]);
-    expect(problems(`${other} # v0.2.3`)).toEqual([expect.stringMatching(/but v0\.2\.3 is commit/)]);
-    expect(release.workflowPinProblems('name: x\n', 'caller.yml', '0.2.3', tags)).toEqual([
-      'caller.yml does not call qa-pr.yml',
-    ]);
   });
 
   it('reads one changelog section', () => {

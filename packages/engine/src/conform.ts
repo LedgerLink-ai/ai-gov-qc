@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
+import { randomInt } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -25,7 +26,7 @@ export interface Fixture {
   /** The branch being committed to: runs branch.ticket, and commit.message against it. */
   branch?: string;
   baseline_from_self?: boolean;
-  values?: Record<string, string[] | { codepoint: string }>;
+  values?: Record<string, FixtureValue>;
   exact?: boolean;
   /**
    * File operations. With these (or pr), the fixture runs in a git repository:
@@ -70,11 +71,50 @@ export interface FixtureResult {
   paths: string[];
 }
 
+/**
+ * A placeholder's value: a list joined, a code point decoded, or a value
+ * generated each time the fixture runs, so that this repository holds no
+ * credential at all, not even split into pieces.
+ */
+export type FixtureValue = string[] | { codepoint: string } | RandomValue;
+
+export interface RandomValue {
+  random: 'alnum' | 'hex' | 'base64url' | 'password';
+  length?: number;
+  parts?: number[];
+  prefix?: string;
+}
+
+// Letters without vowels or x, so that a generated value never spells a word
+// the secret rules treat as an example (test, fake, your_, xxxx, ...).
+const CONSONANTS = 'BCDFGHJKLMNPQRSTVWZbcdfghjkmnpqrstvwz';
+const RANDOM_CHARS: Record<RandomValue['random'], string> = {
+  alnum: `${CONSONANTS}23456789`,
+  hex: '0123456789abcdef',
+  base64url: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-',
+  // A password: letters and digits, then one of PASSWORD_SPECIALS and a digit.
+  password: `${CONSONANTS}23456789`,
+};
+const PASSWORD_SPECIALS = '!#%*~^';
+
+const randomString = (chars: string, length: number): string =>
+  Array.from({ length }, () => chars[randomInt(chars.length)]).join('');
+
+function generate(spec: RandomValue): string {
+  const chars = RANDOM_CHARS[spec.random];
+  const body = (spec.parts ?? [spec.length ?? 16]).map((n) => randomString(chars, n)).join('.');
+  const value =
+    spec.random === 'password' ? `${body.slice(0, -2)}${randomString(PASSWORD_SPECIALS, 1)}${randomInt(10)}` : body;
+  return (spec.prefix ?? '') + value;
+}
+
 const TEMPLATE_SUFFIX = '.tmpl';
 const PLACEHOLDER = /\{\{([A-Z0-9_]+)\}\}/g;
 
-function renderValue(value: string[] | { codepoint: string }): string {
-  return Array.isArray(value) ? value.join('') : String.fromCodePoint(parseInt(value.codepoint.slice(2), 16));
+function renderValue(value: FixtureValue): string {
+  if (Array.isArray(value)) return value.join('');
+  if ('codepoint' in value) return String.fromCodePoint(parseInt(value.codepoint.slice(2), 16));
+  return generate(value);
 }
 
 /** Writes the fixture tree to a temporary directory, filling placeholders. */

@@ -344,6 +344,64 @@ describeHooks('commits and pushes through the hooks for every repository', () =>
     TEST_TIMEOUT_MS,
   );
 
+  // AIQC-88: an IDE's commit pop-up shows only the first line of git's output.
+  const lines = (r: ReturnType<typeof spawnSync>): string[] =>
+    out(r)
+      .split(/\r?\n/)
+      .filter((l) => l.trim() !== '');
+
+  it('without a terminal (an IDE), a blocked commit leads with the summary line and ends with it', () => {
+    const repo = clone(LEDGERLINK);
+    writeFileSync(join(repo.dir, 'AGENTS.md'), HIDDEN);
+    repo.git('add', '.');
+    const res = repo.git('commit', '-m', 'Add agent instructions');
+    expect(res.status).not.toBe(0);
+    const all = lines(res);
+    expect(all[0]).toMatch(/^qa: commit blocked: .+ in AGENTS\.md line 1\. Full details are in the git output\.$/);
+    expect(all.at(-1)).toBe(all[0]);
+    expect(out(res)).toMatch(/BLOCK +ai-config\.content-lint +AGENTS\.md:1/);
+  }, 300_000);
+
+  it('in a terminal, the output streams and the summary line comes last', () => {
+    const repo = clone(LEDGERLINK);
+    writeFileSync(join(repo.dir, 'AGENTS.md'), HIDDEN);
+    repo.git('add', '.');
+    const res = spawnSync('git', ['commit', '-m', 'Add agent instructions'], {
+      cwd: repo.dir,
+      env: { ...env, QA_HOOK_OUTPUT: 'stream' },
+      encoding: 'utf8',
+      timeout: 180_000,
+    });
+    expect(res.status).not.toBe(0);
+    const all = lines(res);
+    expect(all[0]).not.toMatch(/^qa: commit blocked/);
+    expect(all.at(-1)).toMatch(/^qa: commit blocked: .+ in AGENTS\.md line 1\. Details above\.$/);
+  }, 300_000);
+
+  it("names the repository's own hook when it is what stopped a push", () => {
+    const repo = clone(LEDGERLINK);
+    ownHook(repo.dir, 'pre-push', 1, 'echo "own pre-push says no" >&2');
+    const remote = mkdtempSync(join(work, 'remote-'));
+    execFileSync('git', ['init', '-q', '--bare', '--template=', remote], { env });
+    repo.git('remote', 'add', 'backup', remote);
+    const res = repo.git('push', '-q', 'backup', 'main');
+    expect(res.status).not.toBe(0);
+    expect(lines(res)[0]).toBe(
+      "qa: push blocked by this repository's own pre-push hook. Full details are in the git output.",
+    );
+    expect(out(res)).toContain('own pre-push says no');
+  }, 300_000);
+
+  it('a clean commit prints no summary line and no list of skipped checks', () => {
+    const repo = clone(LEDGERLINK);
+    writeFileSync(join(repo.dir, 'clean.md'), 'clean\n');
+    repo.git('add', '.');
+    const res = repo.git('commit', '-m', 'Add clean notes');
+    expect(res.status).toBe(0);
+    expect(out(res)).not.toMatch(/^qa: (commit|push) blocked/m);
+    expect(out(res)).not.toMatch(/^ {2}skip /m);
+  }, 300_000);
+
   it(
     'passes every other hook to the repository (Git LFS and the like keep working)',
     () => {

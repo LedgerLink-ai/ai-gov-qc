@@ -1,7 +1,8 @@
 # Changelog
 
 Every release of `@ledgerlink/qa` (`ledgerlink-qa-<version>.tgz`). The section
-for a version is its GitHub release notes (`node scripts/release.js --notes <version>`),
+for a version is the "What's new" part of its GitHub release notes
+(`templates/release-notes.md`, `node scripts/release.js --notes <version>`),
 and `node scripts/release.js --check` fails a release without one.
 
 Versions follow semantic versioning. Below 1.0, a minor version is a major one:
@@ -9,7 +10,96 @@ Versions follow semantic versioning. Below 1.0, a minor version is a major one:
 that a repository pinned to an earlier compatible version can install without
 changing its hooks.
 
-## Unreleased
+## 0.2.4
+
+Upgrading from 0.2.3
+
+- Install the package and run `qa setup` again. Compatible with 0.2.x:
+  repositories pinned with `qa --require 0.2.0` to `0.2.3` keep working.
+- The secret scan now finds credentials it missed before (AIQC-89), so a
+  commit that passed on 0.2.3 can be blocked on 0.2.4. Move the value to a
+  variable or the secrets manager; for a test value, see "Not reported" below.
+
+### Readable hook output, and the real reason in IDE commit pop-ups (AIQC-88)
+
+Nothing about what is checked or what blocks changes in this part.
+
+- When a commit, commit message or push is stopped, the hooks print one
+  summary line: what was found and where (`qa: commit blocked: possible
+secret: GitHub Personal Access Token (github-pat) in src/config.ts line 12`),
+  or which hook failed.
+- Without a terminal (VS Code's commit button and other IDEs), the hook
+  collects the output and prints the summary line first, so the pop-up, which
+  shows only the first line, says why. In a terminal the output streams as
+  before and the summary is the last line. `QA_HOOK_OUTPUT=stream|buffer`
+  chooses.
+- The text report puts each finding's message, fix and rule ids on their own
+  lines. Checks that did not run are counted, and listed only with the new
+  `--verbose` flag; checks deferred to CI and checks that could not run are
+  always shown.
+- Text logs say in words what happened (`secrets.gitleaks did not run here
+(...); CI runs it`) instead of printing the event as JSON. JSON logs are
+  unchanged.
+- Gitleaks findings name the kind of secret plainly ("GitHub Personal Access
+  Token") instead of repeating the scanner's whole description.
+- The default hook configuration no longer marks the repository's own
+  Prettier, ESLint, tests, type check and build hooks as verbose, so a passing
+  run does not print their `- hook id` and `- duration` lines.
+
+### Secrets: credentials in any file (AIQC-89)
+
+- Fix: `secrets.gitleaks` missed most credentials that are not a known token
+  format. Gitleaks' default generic rule only matches values of 10 to 150
+  characters made of letters, digits, `_`, `.`, `=` and `-` (or longer
+  base64), so it missed an AWS CodeArtifact token in `.npmrc` (about 1,000
+  characters with `.`, `-` and `_`), passwords containing characters such as
+  `@ ! # % & ~`, and credentials inside URLs, connection strings, command
+  lines and XML. Of 38 such leaks in a test set, it reported 5; it now reports
+  all 38.
+- New rules, by the shape of a credential rather than by file, so they apply
+  to every file a commit or push changes:
+  - `credential-assignment`: a quoted value given to a password, secret,
+    token or key name (`password: "..."`, `"apiKey": "..."`,
+    `const dbPassword = '...'`, `$env:API_TOKEN = "..."`), including typed
+    declarations (`token: string = "..."`, Rust `&str`, Go `token string`), in
+    any file, any length, any characters;
+  - `credential-assignment-config`: the same, unquoted, in `.env*`,
+    properties, ini, YAML, TOML, Terraform, shell, PowerShell, CI and Docker
+    files and package-manager credential files (`.npmrc`, `.yarnrc.yml`,
+    `.pypirc`, `credentials`, ...);
+  - `credential-export`: `export TOKEN=...`, `set`, `ENV` and `ARG` lines in
+    any file, including documentation;
+  - `credential-in-url`: `https://user:password@host`, `postgres://`,
+    `amqp://`, git remotes and registry URLs;
+  - `credential-in-connection-string`: `Password=...;`, `?password=`,
+    `?access_token=`, `?sig=` (Azure SAS);
+  - `credential-on-command-line`: `--password`, `--token`, `--api-key`,
+    `--secret` and `curl -u user:password`;
+  - `credential-authorization-header`: `Authorization: Bearer|Basic|Token ...`;
+  - `credential-in-xml` and `credential-in-xml-setting`: Maven
+    `settings.xml`, `NuGet.Config`, `app.config` and `web.config`;
+  - `netrc-password`, and `credential-file` for files that are credentials
+    whatever they contain: SSH private keys (`id_rsa`, `id_ed25519`, ...),
+    `.git-credentials`, `.pgpass` and keystores (`.p12`, `.pfx`, `.jks`,
+    `.keystore`, `.ppk`, `.kdbx`);
+  - `jwe-token` (any encrypted JWT) and `aws-codeartifact-token`.
+- Not reported, so the rules do not stop ordinary work: values kept elsewhere
+  (`${VAR}`, `$VAR`, `%VAR%`, `{{ template }}`, `<placeholder>`, YAML tags),
+  identifiers and paths (`process.env.DB_PASSWORD`, `/run/secrets/db`),
+  masked values (`********`), examples (`changeme`, `your-token`, `test`,
+  `example`), local hosts and documentation domains in URLs
+  (`localhost`, `example.com`), and `--password-stdin`. On 58 MB of
+  third-party packages the new rules added no finding outside test files and
+  documentation examples.
+- Each line is reported once: where several rules match it, the most specific
+  is kept (for example `aws-codeartifact-token` over `jwe-token`).
+- Conformance fixtures can generate a value each time they run
+  (`{ random: password | alnum | hex | base64url, length | parts, prefix }`),
+  so this repository holds no credential, not even split into pieces. F17 and
+  F18 use them: 33 leaks that must be reported, and 31 look-alikes that must
+  not.
+
+### Review findings: execution gate, scanners, hooks and release chain
 
 Upgrade notes
 
@@ -30,9 +120,6 @@ Upgrade notes
   `expires` and `--as-of` must be real calendar dates (`YYYY-MM-DD`, UTC).
   Path tags and exemptions must name repositories in
   `registry/repositories.yaml`.
-- Repositories that call `qa-pr.yml`: re-copy `templates/qa-pr-caller.yml`
-  (commit pin, `QA_REPORT_TOKEN` only). The gate's checkout needs
-  `fetch-depth: 0`; `qa-pr.yml` has it.
 - Administrators: apply this repository's rulesets in `config/github/` and
   enable release immutability (docs/ENFORCEMENT.md, docs/OPERATIONS.md).
 - A sandbox made before this release (`../sandbox` without a `.qa-sandbox`
@@ -72,7 +159,7 @@ Security fixes
 
 Detection
 
-- Pull request history: in `qa prepr` and the gate, Gitleaks also scans the
+- Pull request history: in `qa prepr`, Gitleaks also scans the
   pull request's commits (merge base..HEAD), outside the result cache and
   even when no file changed. Findings name the commit, never the value. No
   merge base is an engine error (fetch the full history).
@@ -143,14 +230,6 @@ Hooks
 
 CI and release
 
-- The gate verifies the qa package's attestation was signed by `release.yml`
-  running for `refs/heads/main` on a GitHub-hosted runner
-  (`--source-ref`, `--deny-self-hosted-runners`).
-- `templates/qa-pr-caller.yml` calls `qa-pr.yml` at a commit SHA with a
-  `# v<version>` comment, and passes only `QA_REPORT_TOKEN` instead of
-  `secrets: inherit`. `scripts/release.js --check` refuses a tag or branch
-  pin, a missing or newer release comment, or a comment that does not match
-  the fetched tag.
 - `qa prepr` runs the agent rules when any commit of the pull request
   declares AI assistance (`Assisted-by`, or a `Co-authored-by` naming a
   registry AI tool), not only for a registered agent author. `--actor` still
@@ -160,9 +239,9 @@ CI and release
 - Rulesets for this repository in `config/github/`: `main` and `dev` need one
   approving code-owner review (stale approvals dismissed); release tags
   cannot be created, moved or deleted except by GitHub Actions.
-- Conformance: 27 fixtures. Fixtures can rename and delete files and describe
+- Conformance: 29 fixtures. Fixtures can rename and delete files and describe
   a pull request (branch, commits, coverage); such fixtures run from a git
-  repository on both paths. New fixtures F17 to F25: rename and deletion of
+  repository on both paths. New fixtures F19 to F27: rename and deletion of
   protected paths, an agent editing AI configuration, and `pr.branch-name`,
   `pr.commits`, `pr.commit-messages`, `pr.diff-size` and `tests.coverage`.
   F00 is now a human change. `qa conform --require-all` fails on a skipped or
@@ -187,8 +266,7 @@ Docs
 - docs/SECURITY.md: threat model rows for in-repository suppressions,
   unreadable files, history scanning, Actions overrides, `--files`,
   credential names and the hook paths in CI.
-- docs/ENFORCEMENT.md: gate pins, rulesets, history scanning and the only
-  suppressions.
+- docs/ENFORCEMENT.md: the only suppressions.
 - docs/PRECOMMIT.md: the commit-msg hook, new Gitleaks rules, the AI
   configuration checks, setup and `core.hooksPath`, commit message handling,
   the sandbox.

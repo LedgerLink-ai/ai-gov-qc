@@ -17,8 +17,8 @@ import { messageLines } from './commit-trailer';
 //   branch.ticket        the current branch carries a valid ticket key (pre-commit)
 //   commit.message       the subject follows the convention and names the
 //                        branch's ticket (commit-msg)
-//   pr.commit-messages   the same for every commit of a pull request (qa prepr
-//                        and the PR gate, where local hooks cannot be skipped)
+//   pr.commit-messages   the same for every commit of a pull request (qa prepr,
+//                        including commits made with --no-verify)
 //
 // The key is read from the branch, never trusted from the message.
 

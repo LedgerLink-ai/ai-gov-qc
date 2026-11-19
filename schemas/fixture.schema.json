@@ -24,7 +24,7 @@
     "baseline_from_self": { "type": "boolean" },
     "values": {
       "type": "object",
-      "description": "Placeholders {{NAME}} in tree files. A list is joined; a codepoint is decoded. Keeps planted secrets and hidden characters out of this repository.",
+      "description": "Placeholders {{NAME}} in tree files. A list is joined; a codepoint is decoded; random is generated each time the fixture runs (length characters, or parts joined by dots, after an optional prefix). Keeps planted secrets and hidden characters out of this repository.",
       "additionalProperties": {
         "oneOf": [
           { "type": "array", "minItems": 1, "items": { "type": "string" } },
@@ -33,6 +33,21 @@
             "additionalProperties": false,
             "required": ["codepoint"],
             "properties": { "codepoint": { "type": "string", "pattern": "^U\\+[0-9A-F]{4,6}$" } }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["random"],
+            "properties": {
+              "random": { "enum": ["alnum", "hex", "base64url", "password"] },
+              "length": { "type": "integer", "minimum": 4, "maximum": 4096 },
+              "parts": {
+                "type": "array",
+                "minItems": 2,
+                "items": { "type": "integer", "minimum": 0, "maximum": 4096 }
+              },
+              "prefix": { "type": "string", "maxLength": 64 }
+            }
           }
         ]
       }

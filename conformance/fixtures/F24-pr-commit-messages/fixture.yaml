@@ -1,0 +1,14 @@
+id: F24
+title: A pull request commit whose subject is off the convention is reported (pr.commit-messages)
+repo: link_core
+actor: human
+as_of: 2027-01-08
+pr:
+  branch: bugfix/LCORE-212-refund-key
+  commits:
+    - message: 'fix(LCORE-212): reject a replayed refund'
+    - message: 'fixed the tests'
+exact: true
+expect:
+  - check: pr.commit-messages
+    blocking: false

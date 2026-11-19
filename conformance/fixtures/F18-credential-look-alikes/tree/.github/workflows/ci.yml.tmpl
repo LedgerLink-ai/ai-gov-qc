@@ -1,0 +1,8 @@
+on: push
+jobs:
+  build:
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - run: echo "$PASSWORD" | docker login -u ci --password-stdin

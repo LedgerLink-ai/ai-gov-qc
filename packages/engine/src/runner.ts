@@ -375,7 +375,11 @@ export async function run(opts: RunOptions): Promise<RunResult> {
             reason: `${message}; runs in CI`,
             mode,
           });
-          log.warn('check.deferred', { check: def.id, reason: message });
+          log.warn(
+            'check.deferred',
+            { check: def.id, reason: message },
+            `${def.id} did not run here (${message}); CI runs it`,
+          );
           return;
         }
         // Fail closed: a check that cannot run is never a pass.
@@ -388,7 +392,7 @@ export async function run(opts: RunOptions): Promise<RunResult> {
           reason: message,
           mode,
         });
-        log.error('check.error', { check: def.id, error: message });
+        log.error('check.error', { check: def.id, error: message }, `${def.id} could not run: ${message}`);
       }
     });
 

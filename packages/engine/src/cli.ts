@@ -17,6 +17,7 @@ import { aiDeclaredCommits, ciCoverage } from './pr-gate';
 import { publishEvidence } from './publish';
 import { redact } from './redact';
 import {
+  appendHookResult,
   baselineFindings,
   parseBaseline,
   readBaseline,
@@ -132,6 +133,7 @@ Options:
                         (default: coverage/coverage-summary.json and */coverage/coverage-summary.json)
   --format <fmt>        text | json | sarif  (default: text)
   --quiet               Print nothing when there is nothing to report (used by the git hooks)
+  --verbose             Also list the checks that did not run here, and the run's tags and file count
   --out <dir>           Also write results.sarif and evidence.json here (CI default: <root>/.qa/out)
   --exclude <ids>       Comma-separated check ids to skip (reported as skipped; used by conformance)
   --config <dir>        Registry directory (default: $QA_CONFIG_DIR, the bundled snapshot, or this checkout).
@@ -182,6 +184,8 @@ Environment:
   QA_PARALLELISM        As --parallel
   QA_NO_CACHE=1         As --no-cache; QA_CACHE_DIR moves the cache (default <QA_HOME>/cache)
   QA_LOG_FORMAT, QA_LOG_LEVEL   As --log-format, --log-level
+  QA_HOOK_OUTPUT        qa hook: stream (output as it runs, summary last; the default in a terminal) or
+                        buffer (summary line first, then the output; the default in an IDE)
   QA_REPORT_URL, QA_REPORT_TOKEN, QA_REPORT_REQUIRED=1
                         Central reporting; with QA_REPORT_REQUIRED=1 a failed upload is exit 2
   QA_PR_AUTHOR          In CI: the pull request author; an agent login from the AI registry runs the
@@ -223,6 +227,7 @@ const BOOLEAN_FLAGS = new Set([
   'all',
   'help',
   'quiet',
+  'verbose',
   'no-python',
   'no-gitleaks',
   'no-git-template',
@@ -492,7 +497,10 @@ async function runAndReport(opts: RunOptions, flags: Flags): Promise<number> {
   const log = logger();
   if (format === 'json') print(JSON.stringify(toJson(result), null, 2));
   else if (format === 'sarif') print(JSON.stringify(toSarif(result), null, 2));
-  else if (!flags.quiet || worthShowing(result)) print(toText(result));
+  else if (!flags.quiet || worthShowing(result)) print(toText(result, { verbose: Boolean(flags.verbose) }));
+  // "qa hook" asks for the blocking findings, to name the first one in its summary line.
+  const hookResult = process.env.QA_HOOK_RESULT;
+  if (hookResult) appendHookResult(hookResult, result);
   const out =
     str(flags, 'out') ?? (opts.mode === 'ci' && format === 'text' ? join(opts.root, '.qa', 'out') : undefined);
   if (out) {
