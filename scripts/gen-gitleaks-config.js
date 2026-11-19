@@ -35,8 +35,20 @@ const word = `(?:${words.join('|')})`;
 // brackets (a string, or a pretty-printed JSON array), hyphens (joined words,
 // YAML list items) and list numbers ("1. ", "2) "). Any other word breaks the
 // run, so ordinary prose (which needs words like "the" or "of") rarely matches.
-const separator = String.raw`(?:[\s,;"'\x60\[\]\-]|\d{1,2}[.):])+`;
-const mnemonic = String.raw`(?i)\b(?:${word}${separator}){11,23}${word}\b`;
+//
+// Each way of writing a phrase has its own separator, so a run cannot mix them:
+// a long JSON list of hyphenated names ("border-right", "column-gap", ...) or
+// minified code is not a phrase. A JSON array counts only as a whole: 12 to 24
+// one-word strings between its brackets.
+const phraseForms = [
+  // abandon ability able ... / abandon-ability-able-... / abandon, ability, able, ...
+  String.raw`\b(?:${word}(?:\s+|-|[ \t]*,[ \t]*)){11,23}${word}\b`,
+  String.raw`\[\s*(?:["'\x60]${word}["'\x60]\s*,\s*){11,23}["'\x60]${word}["'\x60]\s*\]`, // ["abandon", ...]
+  // 1. abandon / 1) ABANDON. Not "45:case 47:case" (minified switch statements).
+  String.raw`(?:\b\d{1,2}[.)][ \t]+${word}\s+){11,23}\d{1,2}[.)][ \t]+${word}\b`,
+  String.raw`(?:-[ \t]+${word}[ \t]*\r?\n\s*){11,23}-[ \t]+${word}\b`, // - abandon (a YAML list)
+];
+const mnemonic = String.raw`(?i)(?:${phraseForms.join('|')})`;
 
 // A 64-hex-digit EVM private key where only a private key goes: an ethers
 // Wallet, viem's privateKeyToAccount or a Hardhat accounts list (0x optional),
@@ -116,6 +128,25 @@ regexes = ${tomlList(NOT_A_VALUE)}
 stopwords = ${JSON.stringify(STOPWORDS)}
 `;
 
+// A password inside a URL is never a code identifier, so the identifier
+// exclusion does not apply: postgres://app:SuperSecretPassword@db is reported.
+// Only the words written as placeholders are not.
+const IDENTIFIER = String.raw`^[A-Za-z_.-]{1,40}$`;
+if (!NOT_A_VALUE.includes(IDENTIFIER)) throw new Error('the identifier exclusion changed; update NOT_A_URL_PASSWORD');
+const NOT_A_URL_PASSWORD = [
+  ...NOT_A_VALUE.filter((r) => r !== IDENTIFIER),
+  String.raw`(?i)^(?:password|passw0rd|passwd|pass|pwd|pw|secret|token|changeme|username|user)$`,
+];
+const notAUrlPassword = String.raw`
+[[rules.allowlists]]
+description = "References to a value kept elsewhere, placeholder words, paths and examples"
+regexTarget = "secret"
+regexes = ${tomlList(NOT_A_URL_PASSWORD)}
+
+[[rules.allowlists]]
+stopwords = ${JSON.stringify(STOPWORDS)}
+`;
+
 const CREDENTIAL_RULES = String.raw`[[allowlists]]
 description = "Template placeholders ({{NAME}}, {{ .Values.x }}, {{ secrets.X }}) are never the credential, for any rule"
 regexTarget = "match"
@@ -153,7 +184,8 @@ ${notAValue}
 [[rules]]
 id = "credential-in-connection-string"
 description = "Password in a connection string or URL query (Password=...; ?password=...&, ?access_token=, ?sig=)"
-regex = '''(?i)(?:^|[;"'\s?&])(?:password|passwd|pwd|access_token|api[_-]?key|client_secret|sig)=([^;&\s"'\x60#<>]{5,}[^;&\s"'\x60#<>),\]}])'''
+# A "#" inside the value is part of the password (Password=abc#def;), not a comment.
+regex = '''(?i)(?:^|[;"'\s?&])(?:password|passwd|pwd|access_token|api[_-]?key|client_secret|sig)=([^;&\s"'\x60#<>][^;&\s"'\x60<>]{4,}[^;&\s"'\x60<>),\]}])'''
 secretGroup = 1
 entropy = 2.5
 tags = ["credential"]
@@ -172,7 +204,7 @@ regexes = [
   '''@(?:localhost|127\.0\.0\.1|0\.0\.0\.0|host\.docker\.internal)\b''',
   '''(?i)@(?:[\w-]+\.)*(?:example\.(?:com|org|net)|[\w-]+\.(?:example|test|invalid|localhost))\b''',
 ]
-${notAValue}
+${notAUrlPassword}
 [[rules]]
 id = "credential-on-command-line"
 description = "Credential given on a command line (--password, --token, --api-key, --secret, curl -u user:password)"

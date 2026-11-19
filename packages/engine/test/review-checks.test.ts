@@ -365,6 +365,15 @@ describe('gitleaks', () => {
         'd.yaml': `words:\n${WORDS.map((w) => `  - ${w}`).join('\n')}`,
         'e.txt': WORDS.join('-'),
         'f.txt': WORDS.slice(1).join(' '), // 11 words: not a phrase
+        // Not phrases, though every token is a wordlist word: a long JSON list of
+        // hyphenated names (UglifyJS's domprops.json) and minified switch cases
+        // ("45:case 47:case", Prettier's plugins).
+        'g.json': JSON.stringify(
+          Array.from({ length: 40 }, (_v, i) => (i % 2 ? `${WORDS[0]}-${WORDS[11]}` : WORDS[11])),
+          null,
+          2,
+        ),
+        'h.js': `switch(c){${Array.from({ length: 20 }, (_v, i) => `case ${40 + i}:case`).join(' ')} 99:return 1}`,
       };
       const findings = await scanFiles('secrets.gitleaks', files);
       expect(findings.map((f) => f.path).sort()).toEqual(['a.json', 'b.md', 'c.md', 'd.yaml', 'e.txt']);
