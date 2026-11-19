@@ -410,12 +410,18 @@ export function hooksPathSettings(): HooksPathSetting[] {
     if (line.trim() === '') continue;
     const [scope, origin, ...rest] = line.split('\t');
     if (scope === 'local' || scope === 'worktree') continue;
-    settings.push({ scope, origin: origin ?? '', value: rest.join('\t') });
+    settings.push({ scope, origin: unquoteOrigin(origin ?? ''), value: rest.join('\t') });
   }
   return settings;
 }
 
-/** "global file:~/.gitconfig: <value>", redacted, for messages. */
+/** git quotes an origin path with backslashes in it: file:"C:\\Users\\dev\\.gitconfig". */
+function unquoteOrigin(origin: string): string {
+  const m = /^(\w+):"(.*)"$/.exec(origin);
+  return m ? `${m[1]}:${m[2].replace(/\\(.)/g, '$1')}` : origin;
+}
+
+/** '"<value>" (global, file:C:/Users/dev/.gitconfig)', redacted, for messages. */
 export const describeHooksPath = (s: HooksPathSetting): string =>
   `"${redact(s.value)}" (${s.scope}, ${redact(s.origin)})`;
 
@@ -433,7 +439,7 @@ function setupGlobalHooks(row: Row): boolean {
     row(
       'FAIL',
       'global hooks',
-      `git's core.hooksPath is already set to ${foreign.map(describeHooksPath).join(', ')}; left as it is. To connect the qa hooks for every repository, remove that setting from where it is set and run "qa setup" again, or run "qa setup --no-global-hooks" to connect new clones only`,
+      `git's ${foreign.map((f) => `${f.scope} core.hooksPath is already ${describeHooksPath(f)}`).join(', and its ')}; left as it is. To connect the qa hooks for every repository, remove that setting from where it is set and run "qa setup" again, or run "qa setup --no-global-hooks" to connect new clones only`,
     );
     return false;
   }
