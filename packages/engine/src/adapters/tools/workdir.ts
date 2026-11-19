@@ -17,10 +17,35 @@ import type { ChangedFile, RunContext } from '../../types';
 export const PROBE_TIMEOUT_MS = 30_000;
 
 /**
+ * Scanner configuration and ignore files a change must not bring into the
+ * scan: Gitleaks and Semgrep read them from the directory they scan, so a
+ * change could otherwise suppress its own findings. Compared ignoring case
+ * (Windows and macOS file systems do).
+ */
+const SCANNER_CONTROL_FILES = new Set([
+  '.gitleaksignore',
+  '.gitleaks.toml',
+  '.semgrepignore',
+  '.semgrep.yml',
+  '.semgrep.yaml',
+]);
+
+/** True for a path the scanner work directory must never contain (see SCANNER_CONTROL_FILES). */
+export function isScannerControlFile(path: string): boolean {
+  const segments = path.toLowerCase().split(/[\\/]/);
+  return SCANNER_CONTROL_FILES.has(segments[segments.length - 1]) || segments.slice(0, -1).includes('.semgrep');
+}
+
+/**
  * Copies exactly the content being checked (from the index for pre-commit, a
  * commit for pre-push) into a private temporary directory, runs `fn` on it and
  * removes it, so a scanner never sees anything else in the working tree and
  * never writes into it.
+ *
+ * Text is written as UTF-8 (a UTF-16 file decoded); a file that is not text
+ * (binary, larger than the text limit) is copied as its raw bytes, so the
+ * scanner still sees it. Scanner configuration and ignore files are never
+ * copied (isScannerControlFile).
  */
 export async function withCheckedFiles<T>(
   ctx: RunContext,
@@ -33,13 +58,14 @@ export async function withCheckedFiles<T>(
     const src = join(work, 'src');
     mkdirSync(src, { recursive: true });
     for (const file of files) {
-      const text = ctx.source.read(file.path);
-      if (text === undefined) continue;
+      if (isScannerControlFile(file.path)) continue;
+      const content: string | Buffer | undefined = ctx.source.read(file.path) ?? ctx.source.readBytes?.(file.path);
+      if (content === undefined) continue;
       const target = resolve(src, file.path);
       // A path from git cannot climb out, but never write outside the work directory.
       if (relative(src, target).startsWith('..') || !target.startsWith(src + sep)) continue;
       mkdirSync(dirname(target), { recursive: true });
-      writeFileSync(target, text);
+      writeFileSync(target, content);
     }
     return await fn(work, src);
   } finally {
