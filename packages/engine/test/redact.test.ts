@@ -16,7 +16,7 @@ describe('redaction', () => {
     ['a JWT', `bearer ${jwt}`],
     ['a private key block', `before\n${pem}\nafter`],
     ['a password in a URL', 'https://deploy:hunter2secret@example.com/repo.git'],
-    ['an Authorization header', 'Authorization: Bearer abcdefghijklmnop123456'],
+    ['an Authorization header', 'Authorization: Bearer abcdefghijklmnop123456'], // gitleaks:allow (synthetic)
     ['a password assignment', 'DB_PASSWORD=correct-horse-battery'],
   ])('masks %s', (_what, text) => {
     const out = redact(text, {});
@@ -40,7 +40,8 @@ describe('redaction', () => {
   });
 
   it('masks the values of credential environment variables wherever they appear', () => {
-    expect(redact('upload failed with s3cr3t-value-123 in the URL', { MY_SERVICE_TOKEN: 's3cr3t-value-123' })).toBe(
+    const value = 's3cr3t-value-123'; // gitleaks:allow (synthetic)
+    expect(redact(`upload failed with ${value} in the URL`, { MY_SERVICE_TOKEN: value })).toBe(
       'upload failed with [REDACTED] in the URL',
     );
   });

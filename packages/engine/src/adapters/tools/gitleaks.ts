@@ -50,7 +50,9 @@ const version = cachedVersion(() => {
 
 /**
  * Scans exactly the changed files with LedgerLink's rules (config/gitleaks.toml:
- * the default rules plus private keys and BIP39 mnemonics), with redaction on.
+ * the default rules plus private keys, BIP39 mnemonics and credentials in any
+ * file), with redaction on. One finding per line: where several rules match
+ * the same line, the most specific one is kept.
  */
 async function run(ctx: RunContext, def: CheckDefinition, files: ChangedFile[]): Promise<Finding[]> {
   if (!version())
@@ -81,7 +83,7 @@ async function run(ctx: RunContext, def: CheckDefinition, files: ChangedFile[]):
         `gitleaks failed (exit ${res.status}): ${redact((res.stderr || res.error?.message || '').trim()).slice(0, 500)}`,
       );
     }
-    const results = JSON.parse(readFileSync(report, 'utf8') || '[]') as GitleaksResult[];
+    const results = onePerLine(JSON.parse(readFileSync(report, 'utf8') || '[]') as GitleaksResult[]);
     return results.map((r) => {
       const path = r.File.replace(/\\/g, '/').replace(/^\.\//, '');
       return {
@@ -97,6 +99,31 @@ async function run(ctx: RunContext, def: CheckDefinition, files: ChangedFile[]):
       };
     });
   });
+}
+
+/**
+ * Rules that match any credential-shaped value. A line they report together
+ * with a rule for a known kind of secret (aws-codeartifact-token, github-pat,
+ * ...) is reported once, under that rule.
+ */
+const GENERAL_RULES = /^(?:generic-api-key|credential-.*|jwe-token)$/;
+
+/**
+ * Keeps one result per file and line: a specific rule over a general one, then
+ * the first rule id in alphabetical order. Gitleaks reports in no fixed order,
+ * and the choice must not depend on it (the rule id is part of the fingerprint).
+ */
+export function onePerLine<T extends { RuleID: string; File: string; StartLine?: number }>(results: T[]): T[] {
+  const rank = (r: T): string => `${GENERAL_RULES.test(r.RuleID) ? 1 : 0}:${r.RuleID}`;
+  const kept = new Map<string, T>();
+  for (const r of results) {
+    const key = `${r.File}:${r.StartLine ?? 0}`;
+    const prev = kept.get(key);
+    if (!prev || rank(r) < rank(prev)) kept.set(key, r);
+  }
+  return [...kept.values()].sort((a, b) =>
+    a.File === b.File ? (a.StartLine ?? 0) - (b.StartLine ?? 0) : a.File < b.File ? -1 : 1,
+  );
 }
 
 export const gitleaks: ToolAdapter = {

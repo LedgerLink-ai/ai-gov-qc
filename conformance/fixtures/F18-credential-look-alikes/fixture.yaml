@@ -1,0 +1,8 @@
+id: F18
+title: Look-alikes are not reported - variables, templates, placeholders, examples, masked values, code, types and documentation (AIQC-89, false-positive guard)
+repo: link_core
+actor: human
+as_of: 2027-01-08
+requires: [gitleaks]
+exact: true
+expect: []
