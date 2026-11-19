@@ -1,7 +1,8 @@
 # Changelog
 
 Every release of `@ledgerlink/qa` (`ledgerlink-qa-<version>.tgz`). The section
-for a version is its GitHub release notes (`node scripts/release.js --notes <version>`),
+for a version is the "What's new" part of its GitHub release notes
+(`templates/release-notes.md`, `node scripts/release.js --notes <version>`),
 and `node scripts/release.js --check` fails a release without one.
 
 Versions follow semantic versioning. Below 1.0, a minor version is a major one:
@@ -11,7 +12,41 @@ changing its hooks.
 
 ## 0.2.4
 
-Secrets: credentials in any file (AIQC-89)
+Upgrading from 0.2.3
+
+- Install the package and run `qa setup` again. Compatible with 0.2.x:
+  repositories pinned with `qa --require 0.2.0` to `0.2.3` keep working.
+- The secret scan now finds credentials it missed before (AIQC-89), so a
+  commit that passed on 0.2.3 can be blocked on 0.2.4. Move the value to a
+  variable or the secrets manager; for a test value, see "Not reported" below.
+
+### Readable hook output, and the real reason in IDE commit pop-ups (AIQC-88)
+
+Nothing about what is checked or what blocks changes in this part.
+
+- When a commit, commit message or push is stopped, the hooks print one
+  summary line: what was found and where (`qa: commit blocked: possible
+secret: GitHub Personal Access Token (github-pat) in src/config.ts line 12`),
+  or which hook failed.
+- Without a terminal (VS Code's commit button and other IDEs), the hook
+  collects the output and prints the summary line first, so the pop-up, which
+  shows only the first line, says why. In a terminal the output streams as
+  before and the summary is the last line. `QA_HOOK_OUTPUT=stream|buffer`
+  chooses.
+- The text report puts each finding's message, fix and rule ids on their own
+  lines. Checks that did not run are counted, and listed only with the new
+  `--verbose` flag; checks deferred to CI and checks that could not run are
+  always shown.
+- Text logs say in words what happened (`secrets.gitleaks did not run here
+(...); CI runs it`) instead of printing the event as JSON. JSON logs are
+  unchanged.
+- Gitleaks findings name the kind of secret plainly ("GitHub Personal Access
+  Token") instead of repeating the scanner's whole description.
+- The default hook configuration no longer marks the repository's own
+  Prettier, ESLint, tests, type check and build hooks as verbose, so a passing
+  run does not print their `- hook id` and `- duration` lines.
+
+### Secrets: credentials in any file (AIQC-89)
 
 - Fix: `secrets.gitleaks` missed most credentials that are not a known token
   format. Gitleaks' default generic rule only matches values of 10 to 150

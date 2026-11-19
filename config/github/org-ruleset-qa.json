@@ -50,7 +50,7 @@
           {
             "path": ".github/workflows/qa-pr.yml",
             "repository_id": 0,
-            "ref": "refs/tags/v0.2.3"
+            "ref": "refs/tags/v0.2.4"
           }
         ]
       }
