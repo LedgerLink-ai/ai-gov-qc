@@ -16,7 +16,9 @@ describe('AI declarations in commit messages', () => {
     // Malformed is still a declaration; commit.trailer reports its form.
     expect(declaresAi('fix: y\n\nAssisted-by: cursor/gpt-5\n', registry)).toBe(true);
     const alias = registry.tools.flatMap((t) => t.trailer_aliases ?? [])[0];
-    if (alias) expect(declaresAi(`fix: y\n\nCo-authored-by: ${alias} <bot@example.invalid>\n`, registry)).toBe(true);
+    // An alias with an @ must be the co-author's address; any other alias a word of the name.
+    const coAuthor = alias?.includes('@') ? `Some Tool <${alias}>` : `${alias} <bot@example.invalid>`;
+    if (alias) expect(declaresAi(`fix: y\n\nCo-authored-by: ${coAuthor}\n`, registry)).toBe(true);
   });
 
   it('no trailer, "Assisted-by: none", a human co-author or a commented-out line declares nothing', () => {
