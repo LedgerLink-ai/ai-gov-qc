@@ -12,6 +12,14 @@ function messageText(f: EvaluatedFinding): string {
   return redact(f.fixHint ? `${f.message} Fix: ${f.fixHint}` : f.message);
 }
 
+/**
+ * A repository-relative path as a SARIF artifactLocation.uri (a relative URI
+ * reference): each segment percent-encoded, the "/" between them kept.
+ */
+export function sarifUri(path: string): string {
+  return path.split('/').map(encodeURIComponent).join('/');
+}
+
 /** SARIF 2.1.0: the one report format every caller reads (Technical Design 10.4). */
 export function toSarif(result: RunResult): object {
   const ran = new Set(result.checkRuns.filter((r) => r.status !== 'skipped').map((r) => r.checkId));
@@ -38,7 +46,7 @@ export function toSarif(result: RunResult): object {
       ? [
           {
             physicalLocation: {
-              artifactLocation: { uri: f.path },
+              artifactLocation: { uri: sarifUri(f.path) },
               ...(f.line ? { region: { startLine: f.line, ...(f.column ? { startColumn: f.column } : {}) } } : {}),
             },
           },
@@ -302,9 +310,19 @@ export function readBaseline(root: string): Set<string> {
   return parseBaseline(readFileSync(file, 'utf8'));
 }
 
+/**
+ * The findings a baseline records: every finding except those an exemption
+ * covers. An exemption is dated; recording its findings in the baseline would
+ * keep them from blocking after the exemption expires.
+ */
+export function baselineFindings(result: RunResult): EvaluatedFinding[] {
+  return result.findings.filter((f) => f.suppressedBy !== 'exemption');
+}
+
 export function writeBaseline(root: string, result: RunResult): string {
   const file = join(root, BASELINE_FILE);
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, JSON.stringify(toSarif(result), null, 2) + '\n');
+  const recorded: RunResult = { ...result, findings: baselineFindings(result) };
+  writeFileSync(file, JSON.stringify(toSarif(recorded), null, 2) + '\n');
   return file;
 }

@@ -43,11 +43,19 @@ export class ToolTimeoutError extends Error {
 const CREDENTIAL_NAME =
   /(TOKEN|SECRET|PASSWORD|PASSWD|PASSPHRASE|CREDENTIAL|PRIVATE[_-]?KEY|API[_-]?KEY|ACCESS[_-]?KEY|AUTH(?!OR(?!IZ))|COOKIE|SESSION|_PAT$|^PAT$|WEBHOOK)/i;
 
+// Wider: any key (STRIPE_KEY, SSH_KEY, KEY_FILE, SIGNING_KEY_ID), password
+// (DB_PASS), wallet mnemonic or seed, anything private. Not applied to git's
+// own GIT_* variables (GIT_ASKPASS, GIT_SSH_KEY... are configuration git may
+// need); those are still removed by the patterns above (GIT_TOKEN).
+const CREDENTIAL_NAME_WIDE = /(KEY$|_KEY_|^KEY_|PASS$|MNEMONIC|SEED|PRIVATE)/i;
+
 /** Names that look like credentials but are needed to run programs at all. */
-const KEEP = new Set(['SSH_AUTH_SOCK']);
+const KEEP = new Set(['SSH_AUTH_SOCK', 'PYTHONHASHSEED']);
 
 export function isCredentialName(name: string): boolean {
-  return !KEEP.has(name) && CREDENTIAL_NAME.test(name);
+  if (KEEP.has(name)) return false;
+  if (CREDENTIAL_NAME.test(name)) return true;
+  return !/^GIT_/i.test(name) && CREDENTIAL_NAME_WIDE.test(name);
 }
 
 /** A copy of `env` without variables whose names mark them as credentials. */

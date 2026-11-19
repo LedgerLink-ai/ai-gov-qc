@@ -72,7 +72,7 @@ describe('git file selection', () => {
     expect(files).toEqual([
       { path: 'README.md', status: 'M' },
       { path: 'a.ts', status: 'D' },
-      { path: 'src/b.ts', status: 'R' },
+      { path: 'src/b.ts', status: 'R', oldPath: 'b.ts' },
       { path: 'src/new.ts', status: 'A' },
     ]);
   });

@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { basename, join, relative, resolve, sep } from 'node:path';
+import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { DEFAULT_GIT_TIMEOUT_MS, scrubbedEnv } from './exec';
 import {
   InputError,
@@ -15,8 +15,21 @@ const MAX_TEXT_BYTES = 2 * 1024 * 1024;
 
 export const toPosix = (p: string): string => p.split(sep).join('/');
 
-function decodeText(buf: Buffer): string | undefined {
+/**
+ * Text from file bytes: UTF-8 (a byte order mark is removed), or UTF-16 LE or
+ * BE when the file starts with that byte order mark. Undefined for a file
+ * larger than 2 MB or one that looks binary (a NUL byte in the first 8000
+ * bytes); the runner reports those as not readable instead of passing them.
+ */
+export function decodeText(buf: Buffer): string | undefined {
   if (buf.length > MAX_TEXT_BYTES) return undefined;
+  if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) buf = buf.subarray(3);
+  else if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) return buf.subarray(2).toString('utf16le');
+  else if (buf.length >= 2 && buf[0] === 0xfe && buf[1] === 0xff) {
+    const le = Buffer.from(buf.subarray(2, 2 + ((buf.length - 2) & ~1)));
+    le.swap16();
+    return le.toString('utf16le');
+  }
   if (buf.subarray(0, 8000).includes(0)) return undefined;
   return buf.toString('utf8');
 }
@@ -55,9 +68,20 @@ export function assertRef(ref: string, what = 'git revision'): string {
   return ref;
 }
 
-/** A repository-relative path git listed, or an InputError for one that could escape the repository. */
-function assertRepoPath(path: string): string {
-  if (path.startsWith('-') || path.startsWith('/') || /(^|\/)\.\.(\/|$)/.test(path) || path.includes('\0'))
+/**
+ * A repository-relative path, or an InputError for one that could escape the
+ * repository: absolute (/x, C:/x, \\server\x), option-like, with a ".."
+ * segment, or with a NUL.
+ */
+export function assertRepoPath(path: string): string {
+  if (
+    path.startsWith('-') ||
+    path.startsWith('/') ||
+    path.startsWith('\\') ||
+    /^[A-Za-z]:/.test(path) ||
+    /(^|[\\/])\.\.([\\/]|$)/.test(path) ||
+    path.includes('\0')
+  )
     throw new InputError(`refusing the unexpected path "${path.slice(0, 80)}"`);
   return path;
 }
@@ -99,9 +123,13 @@ function parseNameStatus(out: Buffer): ChangedFile[] {
   for (let i = 0; i < parts.length; ) {
     const code = parts[i++];
     const letter = code[0];
-    if (letter === 'R' || letter === 'C') {
-      i++; // old path
-      files.push({ path: parts[i++], status: letter === 'R' ? 'R' : 'A' });
+    if (letter === 'R') {
+      // A rename removes the old path: keep it, so moving a protected file away is seen.
+      const oldPath = parts[i++];
+      files.push({ path: parts[i++], status: 'R', oldPath });
+    } else if (letter === 'C') {
+      i++; // a copy leaves its source as it was
+      files.push({ path: parts[i++], status: 'A' });
     } else {
       files.push({ path: parts[i++], status: letter === 'A' || letter === 'D' ? letter : 'M' });
     }
@@ -139,43 +167,61 @@ export function gitTreeFiles(root: string, ref: string): ChangedFile[] {
 /** Reads files as committed in `ref`, so pre-push checks what is pushed, not the work tree. */
 export function commitSource(root: string, ref: string): FileSource {
   assertRef(ref);
-  return {
-    kind: 'commit',
-    root,
-    read(path) {
-      try {
-        return decodeText(git(root, ['show', `${ref}:${assertRepoPath(path)}`]));
-      } catch {
-        return undefined;
-      }
-    },
-  };
+  return gitObjectSource('commit', root, ref);
 }
 
 /** Reads staged content, so the check sees exactly what will be committed. */
 export function indexSource(root: string): FileSource {
-  return {
-    kind: 'index',
-    root,
-    read(path) {
-      try {
-        return decodeText(git(root, ['show', `:${assertRepoPath(path)}`]));
-      } catch {
-        return undefined;
-      }
-    },
-  };
+  return gitObjectSource('index', root, '');
 }
 
-export function directorySource(root: string, kind: 'worktree' | 'dir' = 'dir'): FileSource {
+/**
+ * Files read with "git show <ref>:<path>" (ref '' is the index). readBytes
+ * throws for a file that exists but is larger than git's output limit, so it
+ * is never mistaken for a missing one.
+ */
+function gitObjectSource(kind: 'index' | 'commit', root: string, ref: string): FileSource {
+  const bytes = (path: string): Buffer | undefined => {
+    try {
+      return git(root, ['show', `${ref}:${assertRepoPath(path)}`]);
+    } catch (err) {
+      if ((err as { code?: string }).code === 'ENOBUFS')
+        throw new Error(`${path.slice(0, 200)} is larger than 64 MB and cannot be read`);
+      return undefined;
+    }
+  };
   return {
     kind,
     root,
     read(path) {
-      const full = join(root, path);
-      if (!existsSync(full) || !statSync(full).isFile()) return undefined;
-      return decodeText(readFileSync(full));
+      try {
+        const buf = bytes(path);
+        return buf === undefined ? undefined : decodeText(buf);
+      } catch {
+        return undefined;
+      }
     },
+    readBytes: bytes,
+  };
+}
+
+export function directorySource(root: string, kind: 'worktree' | 'dir' = 'dir'): FileSource {
+  const bytes = (path: string): Buffer | undefined => {
+    const full = resolve(root, path);
+    // Never read outside the root, whatever the path says.
+    const rel = relative(resolve(root), full);
+    if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return undefined;
+    if (!existsSync(full) || !statSync(full).isFile()) return undefined;
+    return readFileSync(full);
+  };
+  return {
+    kind,
+    root,
+    read(path) {
+      const buf = bytes(path);
+      return buf === undefined ? undefined : decodeText(buf);
+    },
+    readBytes: bytes,
   };
 }
 
