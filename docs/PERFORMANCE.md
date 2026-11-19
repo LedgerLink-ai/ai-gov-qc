@@ -70,5 +70,8 @@ node scripts/benchmark.js --files 300 --repeat 3 --json out/benchmark.json
 CI runs it on Linux, macOS and Windows for every pull request and keeps the
 JSON as the `benchmark-<os>` artifact, so a slowdown shows up in review.
 `packages/engine/test/performance.test.ts` guards against regressions with
-generous limits: 2,000 files through the native checks in under 10 s, and an
-unchanged re-run of a slow scanner answered from the cache.
+limits that hold on a loaded machine: 2,000 files through the native checks
+within an absolute cap (30 s; `QA_PERF_BUDGET_MS` changes it), and an
+unchanged re-run of a slow scanner answered from the cache: the scanner is
+not called again and the warm run saves at least half of the scanner's time
+against the cold run.
