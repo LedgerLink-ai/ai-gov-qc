@@ -131,6 +131,5 @@ pre-push, pre-PR) runs end to end.
 ## What is not covered yet
 
 - The MCP server and `qa init` (week 3).
-- The pull request gate runs in the target repositories once the rulesets are
-  applied ([ENFORCEMENT.md](ENFORCEMENT.md)); its steps are the CLI paths the
-  end-to-end tests cover.
+- Pull request checks: handled outside this repository
+  ([ENFORCEMENT.md](ENFORCEMENT.md)).

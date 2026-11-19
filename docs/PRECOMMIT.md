@@ -35,7 +35,7 @@ The Gitleaks rules added to the defaults are in `config/gitleaks.toml`, generate
 - `solana-keypair-array`
 - `bip39-mnemonic`, built from the BIP39 English wordlist, which is checked against its published SHA-256
 
-Local hooks can be bypassed with `git commit --no-verify`, and a developer controls their own machine, so the hooks are fast feedback, not the control. The control is the pull request gate: `.github/workflows/qa-pr.yml` runs every qa check again on GitHub's runners with the configuration released with qa, and rulesets make it a required check that only organisation administrators can bypass ([ENFORCEMENT.md](ENFORCEMENT.md), which lists every limitation of local hooks). (The prepare-commit-msg hook still runs with `--no-verify`, so messages are still pre-filled.)
+Local hooks can be bypassed with `git commit --no-verify`, and a developer controls their own machine, so the hooks are fast feedback, not an enforcement point. Pull requests are checked outside this repository ([ENFORCEMENT.md](ENFORCEMENT.md), which lists every limitation of local hooks). (The prepare-commit-msg hook still runs with `--no-verify`, so messages are still pre-filled.)
 
 ### Branch names and commit messages
 
