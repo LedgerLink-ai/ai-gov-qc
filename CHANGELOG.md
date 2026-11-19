@@ -60,8 +60,9 @@ secret: GitHub Personal Access Token (github-pat) in src/config.ts line 12`),
   to every file a commit or push changes:
   - `credential-assignment`: a quoted value given to a password, secret,
     token or key name (`password: "..."`, `"apiKey": "..."`,
-    `const dbPassword = '...'`, `$env:API_TOKEN = "..."`), in any file, any
-    length, any characters;
+    `const dbPassword = '...'`, `$env:API_TOKEN = "..."`), including typed
+    declarations (`token: string = "..."`, Rust `&str`, Go `token string`), in
+    any file, any length, any characters;
   - `credential-assignment-config`: the same, unquoted, in `.env*`,
     properties, ini, YAML, TOML, Terraform, shell, PowerShell, CI and Docker
     files and package-manager credential files (`.npmrc`, `.yarnrc.yml`,
@@ -95,7 +96,7 @@ secret: GitHub Personal Access Token (github-pat) in src/config.ts line 12`),
 - Conformance fixtures can generate a value each time they run
   (`{ random: password | alnum | hex | base64url, length | parts, prefix }`),
   so this repository holds no credential, not even split into pieces. F17 and
-  F18 use them: 30 leaks that must be reported, and 29 look-alikes that must
+  F18 use them: 33 leaks that must be reported, and 31 look-alikes that must
   not.
 
 ## 0.2.3

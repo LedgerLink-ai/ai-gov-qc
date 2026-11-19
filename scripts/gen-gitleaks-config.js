@@ -110,7 +110,11 @@ regexes = ['''\{\{[^{}\n]{1,100}\}\}''']
 [[rules]]
 id = "credential-assignment"
 description = "Credential assigned to a password, secret, token or key name, in any file"
-regex = '''(?i)${SECRET_NAME}["'\x60]?[ \t]*(?::=|=>|\?=|[:=])[ \t]*["'\x60]([^\s"'\x60]{8,})["'\x60]'''
+# An optional type between the name and the value: "token: string =" (TypeScript,
+# Kotlin, Swift; "token?: string =" for an optional property), "API_TOKEN: &str ="
+# (Rust), "token string =" (Go). A quoted name ("password": "...") has no type,
+# so HTML such as <img src="1password-icon.svg" alt="..."> is not a match.
+regex = '''(?i)${SECRET_NAME}(?:["'\x60]|\??[ \t]*:[ \t]*&?[\w.<>\[\]?]{1,40}|[ \t]+[\w.\[\]*]{1,30})?[ \t]*(?::=|=>|\?=|[:=])[ \t]*["'\x60]([^\s"'\x60]{8,})["'\x60]'''
 secretGroup = 1
 entropy = 2.5
 tags = ["credential"]
