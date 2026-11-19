@@ -7,15 +7,16 @@ import { versionIn } from './adapters/tools/workdir';
 import { parseTrailerValue } from './checks/commit-trailer';
 import { NO_DEFAULT, prepareMessage } from './prepare-message';
 import { clearCache, cacheDir, openCache } from './cache';
-import { loadAllowlist, loadConfig, locateConfig } from './config';
+import { canonicalRepoName, loadAllowlist, loadConfig, locateConfig } from './config';
 import { envMs } from './exec';
-import { configSourceProblem, gate, isWithin } from './gate';
+import { configSourceProblem, gate, isConformanceRoot, isWithin } from './gate';
 import { runConformance, unavailableTools } from './conform';
 import { createLogger, logger, parseLogSettings, setLogger } from './log';
-import { today } from './policy';
+import { isCalendarDate, today } from './policy';
 import { publishEvidence } from './publish';
 import { redact } from './redact';
 import {
+  baselineFindings,
   parseBaseline,
   readBaseline,
   summarise,
@@ -31,6 +32,7 @@ import { conventionsFor } from './conventions';
 import { run, type RunOptions } from './runner';
 import {
   assertRef,
+  assertRepoPath,
   commitSource,
   defaultBase,
   directorySource,
@@ -299,6 +301,8 @@ function select(flags: Flags, defaultSelection?: 'staged'): Selection {
         .split(',')
         .map((f) => toPosix(f.trim()))
         .filter(Boolean)
+        // Paths inside --root only: never absolute, never climbing out with "..".
+        .map((path) => assertRepoPath(path))
         .map((path) => ({ path, status: existsSync(join(root, path)) ? ('M' as const) : ('D' as const) }));
       return { root, inGit, files, source: directorySource(root) };
     }
@@ -387,16 +391,56 @@ function baselineFor(sel: Selection, mode: RunMode): Set<string> {
     logger().info('baseline.source', { ref: at, file: BASELINE_FILE });
     return parseBaseline(text, `${BASELINE_FILE} at ${at.slice(0, 12)}`);
   }
+  // In CI without a base branch there is no baseline to trust: the working
+  // tree's copy is part of the change being checked. Conformance fixtures
+  // (loose temp folders) bring their own.
+  if (mode === 'ci' && !isConformanceRoot(sel.root, process.env)) {
+    if (existsSync(join(sel.root, BASELINE_FILE)))
+      logger().info('baseline.ignored', { file: BASELINE_FILE, reason: 'CI run without --base' });
+    return new Set<string>();
+  }
   return readBaseline(sel.root);
+}
+
+/**
+ * In GitHub Actions the run is the pull request gate: what it checks, as of
+ * when, for whom and in which mode is not the caller's to change. Returns the
+ * overrides that were given, which are refused there. Conformance fixtures
+ * (loose temp folders) are exempt.
+ */
+function actionsOverrides(flags: Flags, root: string): string[] {
+  if (process.env.GITHUB_ACTIONS !== 'true' || isConformanceRoot(root, process.env)) return [];
+  const given: Array<[boolean, string]> = [
+    [str(flags, 'as-of') !== undefined, '--as-of'],
+    [Boolean(process.env.QA_AS_OF), 'QA_AS_OF'],
+    [str(flags, 'exclude') !== undefined, '--exclude'],
+    [str(flags, 'mode') !== undefined && str(flags, 'mode') !== 'ci', '--mode ' + str(flags, 'mode')],
+    [str(flags, 'actor') !== undefined, '--actor'],
+    [Boolean(process.env.QA_ACTOR), 'QA_ACTOR'],
+    [str(flags, 'repo') !== undefined, '--repo'],
+  ];
+  return given.filter(([on]) => on).map(([, name]) => name);
 }
 
 function runOptions(flags: Flags, sel: Selection, extra: Partial<RunOptions> = {}): RunOptions {
   const config = loadConfig(str(flags, 'config'));
   const gitAvailable = tryGitRoot(sel.root) !== undefined;
   const msgFile = str(flags, 'commit-msg-file');
+  const refused = actionsOverrides(flags, sel.root);
+  if (refused.length > 0)
+    throw new InputError(
+      `${refused.join(', ')} not accepted in GitHub Actions; the pull request gate runs every check, in CI mode, as of today, for the actor and repository GitHub reports`,
+    );
+  const inActions = process.env.GITHUB_ACTIONS === 'true' && !isConformanceRoot(sel.root, process.env);
   const asOf = str(flags, 'as-of') ?? process.env.QA_AS_OF ?? today();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf)) throw new UsageError('--as-of (or QA_AS_OF) must be YYYY-MM-DD');
-  const mode = oneOf<RunMode>(str(flags, 'mode'), ['local', 'ci'], 'mode', process.env.CI ? 'ci' : 'local');
+  if (!isCalendarDate(asOf)) throw new UsageError('--as-of (or QA_AS_OF) must be a date, YYYY-MM-DD');
+  const mode = inActions
+    ? 'ci'
+    : oneOf<RunMode>(str(flags, 'mode'), ['local', 'ci'], 'mode', process.env.CI ? 'ci' : 'local');
+  // The allowlist's spelling, whatever case the origin URL uses; in Actions the
+  // name GitHub reports (the gate verified it), never the checkout's remote.
+  const actionsRepo = inActions ? process.env.GITHUB_REPOSITORY?.split('/')[1] : undefined;
+  const repoName = actionsRepo ?? str(flags, 'repo') ?? (gitAvailable ? gitRepoName(sel.root) : basename(sel.root));
   setGitTimeout(envMs('QA_GIT_TIMEOUT_MS') ?? config.policy.timeouts?.git_ms ?? 120_000);
   // The cache is a local convenience; CI always scans afresh.
   const useCache =
@@ -406,7 +450,7 @@ function runOptions(flags: Flags, sel: Selection, extra: Partial<RunOptions> = {
     config.policy.performance?.cache !== false;
   return {
     config,
-    repo: str(flags, 'repo') ?? (gitAvailable ? gitRepoName(sel.root) : basename(sel.root)),
+    repo: canonicalRepoName(config.repositories, repoName),
     sha: gitAvailable ? gitHeadSha(sel.root) : 'WORKTREE',
     root: sel.root,
     actor: resolveActor(flags, config),
@@ -629,7 +673,8 @@ async function baseline(flags: Flags): Promise<number> {
     return 2;
   }
   const file = writeBaseline(opts.root, result);
-  print(`Baselined ${result.findings.length} finding(s) as of ${opts.asOf} in ${file}`);
+  // Exempted findings stay out: they block again when their exemption expires.
+  print(`Baselined ${baselineFindings(result).length} finding(s) as of ${opts.asOf} in ${file}`);
   return 0;
 }
 
