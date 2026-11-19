@@ -6,21 +6,27 @@
 # the version releases nothing. To release: bump the version in both
 # package.json files in the pull request.
 #
+# Developers install it as the release notes say (templates/release-notes.md):
+#   npm install -g --ignore-scripts ./ledgerlink-qa-<version>.tgz
 #   qa setup
 #
 # A release that failed (for example a GitHub outage) is retried with
 # "Re-run jobs" on its run in the Actions tab.
 name: release
+
 on:
   workflow_run:
     workflows: [ci]
     types: [completed]
     branches: [main]
+
 permissions:
   contents: read
+
 concurrency:
   group: release
   cancel-in-progress: false
+
 jobs:
   release:
     # Only a ci run that passed on every OS, for a push to main (not a pull request).
@@ -71,12 +77,22 @@ jobs:
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: out/ledgerlink-qa-${{ steps.version.outputs.version }}.tgz
+      # The notes are templates/release-notes.md: requirements, where qa is
+      # installed on each OS, install, check, upgrade, uninstall and roll back,
+      # with the CHANGELOG.md section as "What's new". The pull request list is
+      # GitHub's, without pull requests reverted before the release (AIQC-90),
+      # so the release is created without --generate-notes.
       - name: create the release
         if: steps.version.outputs.release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
+          SHA256=$(cut -c1-64 "out/ledgerlink-qa-$VERSION.tgz.sha256")
+          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="v$VERSION" -f target_commitish="$HEAD_SHA" --jq .body > out/pull-requests.md
+          node scripts/release.js --notes "$VERSION" --repo "$GITHUB_REPOSITORY" --sha256 "$SHA256" \
+            --pull-requests out/pull-requests.md > out/notes.md
           cd out
           gh release create "v$VERSION" \
             --repo "$GITHUB_REPOSITORY" \
@@ -84,6 +100,7 @@ jobs:
             --title "qa $VERSION" \
             --notes-file notes.md \
             "ledgerlink-qa-$VERSION.tgz" "ledgerlink-qa-$VERSION.tgz.sha256"
+
       # Optional: also publish to LedgerLink's CodeArtifact npm registry, so
       # developers can run "npm install -g @ledgerlink/qa@<version>". Needs an
       # AWS role that trusts this repository through GitHub OIDC (id-token: write).
