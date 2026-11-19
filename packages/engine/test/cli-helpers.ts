@@ -1,7 +1,8 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { toolBinary } from '../src/tools-home';
 
 /** The built CLI. End-to-end tests run it as developers and CI do (npm run build first). */
 export const QA_BIN = resolve(__dirname, '..', 'bin', 'qa.js');
@@ -9,6 +10,18 @@ export const BUILT = existsSync(resolve(__dirname, '..', 'dist', 'cli.js'));
 
 /** Runs the end-to-end suites only when the CLI is built; CI always builds before testing. */
 export const describeBuilt = BUILT ? describe : describe.skip;
+
+let qaHomeForTests: string | undefined;
+
+/** One temporary qa home per test process, removed when the process exits. */
+function privateQaHome(): string {
+  if (!qaHomeForTests) {
+    const dir = mkdtempSync(join(tmpdir(), 'qa-home-'));
+    qaHomeForTests = dir;
+    process.once('exit', () => rmSync(dir, { recursive: true, force: true }));
+  }
+  return qaHomeForTests;
+}
 
 /**
  * The environment for a CLI run outside any CI: no GitHub Actions or CI
@@ -22,6 +35,12 @@ export function cliEnv(extra: Record<string, string | undefined> = {}): NodeJS.P
       continue;
     env[k] = v;
   }
+  // The developer's installed scanners, found the way qa finds them, but a
+  // private qa home: hook runs write launcher shims there, never into ~/.ledgerlink-qa.
+  env.QA_GITLEAKS_BIN = toolBinary('gitleaks');
+  env.QA_SEMGREP_BIN = toolBinary('semgrep');
+  env.QA_PRE_COMMIT_BIN = toolBinary('pre-commit');
+  env.QA_HOME = privateQaHome();
   env.QA_NO_CACHE = '1';
   env.GIT_CONFIG_NOSYSTEM = '1';
   for (const [k, v] of Object.entries(extra)) {
