@@ -1,0 +1,8 @@
+env:
+  - name: DB_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: db-secret
+        key: password
+secretName: my-app-tls
+passwordSecretRef: db-credentials

@@ -90,7 +90,7 @@ repos:
         require_serial: true
         verbose: true
       # Gitleaks on staged changes (default rules plus blockchain private keys,
-      # BIP39 mnemonics, npm registry credentials and CodeArtifact tokens); agent instruction files scanned for hidden
+      # BIP39 mnemonics and credentials in any file); agent instruction files scanned for hidden
       # Unicode, bidirectional characters and control-weakening text; MCP
       # allowlist; protected paths; a ticket key in the branch name.
       - id: qa-precommit
