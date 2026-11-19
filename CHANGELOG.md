@@ -9,6 +9,18 @@ Versions follow semantic versioning. Below 1.0, a minor version is a major one:
 that a repository pinned to an earlier compatible version can install without
 changing its hooks.
 
+## 0.2.4
+
+Type check in repositories without a root tsconfig.json (AIQC-91)
+
+- Fix: the default pre-push type check (`qa repo-tool typescript:tsc
+--noEmit`) failed every push in a repository with no `tsconfig.json` at
+  its root, such as a monorepo with its projects in `packages/*`: `tsc`
+  found no project, printed its help and exited 1. It now prints a "skipped"
+  notice and passes, as `repo-tool` does when dependencies are not
+  installed. It runs as before when the root has a `tsconfig.json`, or the
+  hook gives a project (`-p`, `-b`) or files.
+
 ## 0.2.3
 
 Upgrading from 0.2.2

@@ -950,9 +950,28 @@ function repoTool(args: string[]): number {
   // The executable must be a file of that package, not a path that climbs out of it.
   if (!isWithin(script, dirname(manifest)) || !existsSync(script))
     throw new InputError(`${pkg}'s "${binName}" executable (${bin}) is not a file inside the package`);
+  if (pkg === 'typescript' && binName === 'tsc' && !tscHasProject(root, rest)) {
+    print(
+      'qa: no tsconfig.json at the repository root, so "tsc" has no project to check; type check skipped. ' +
+        'Add a root tsconfig.json, or give the project in the hook: typescript:tsc -p <path to tsconfig.json> --noEmit',
+    );
+    return 0;
+  }
   const res = spawnSync(process.execPath, [script, ...rest], { cwd: root, stdio: 'inherit' });
   if (res.error) throw res.error;
   return res.status ?? 2;
+}
+
+/**
+ * Whether tsc, run from the repository root with these arguments, has
+ * something to compile. Without a project (-p, -b), source files or a root
+ * tsconfig.json it prints its help and exits 1, which would fail every push in
+ * a repository whose TypeScript projects live in sub-folders (AIQC-91).
+ */
+function tscHasProject(root: string, args: string[]): boolean {
+  if (existsSync(join(root, 'tsconfig.json'))) return true;
+  const standalone = ['-p', '--project', '-b', '--build', '-v', '--version', '-h', '--help', '--init', '--showConfig'];
+  return args.some((a) => standalone.includes(a) || /\.[cm]?[jt]sx?$/i.test(a));
 }
 
 /**

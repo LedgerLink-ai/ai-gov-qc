@@ -15,6 +15,8 @@ Stage 2 and 3 run the repository's own scripts through two generic hooks, so one
 
 Both print a "skipped" notice and pass when the repository's dependencies are not installed, or when it has no such script.
 
+The type check runs `tsc --noEmit` from the repository root, so it checks the project in the root `tsconfig.json`. A repository without one, whose TypeScript projects are in sub-folders, gets a "skipped" notice instead of a failure. To check those projects, add a root `tsconfig.json` (ai-gov-qc's extends `packages/engine/tsconfig.json`), or give the project in the hook: `repo-tool typescript:tsc -p <path to tsconfig.json> --noEmit`.
+
 The pull request rules (stage 3) and their limits are in `policy.yaml` under `pr:`:
 
 | Check                | Rule                                                                                                                  | Mode                                                     |
