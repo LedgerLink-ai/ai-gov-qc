@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gitleaks, matchedText } from '../src/adapters/tools/gitleaks';
 import { semgrep } from '../src/adapters/tools/semgrep';
+import { openCache } from '../src/cache';
 import { lintText } from '../src/checks/content-lint';
 import { checkServer, mcpAllowlist, parseCodexServers, urlForDisplay } from '../src/checks/mcp-allowlist';
 import { run } from '../src/runner';
@@ -63,6 +64,7 @@ describe('content-lint: weakening phrases (L16)', () => {
     expect(rules('Do not wait; bypass the hooks.')).toEqual(['disable-controls']);
     expect(lint('Never commit with --no-verify and never skip tests.')).toEqual([]);
     expect(lint('Do not disable lint. You must not bypass hooks.')).toEqual([]);
+    expect(lint('Never, under any circumstances, skip tests.')).toEqual([]);
   });
 
   it.each([
@@ -450,6 +452,47 @@ describe('gitleaks', () => {
         expect(result.findings.map((f) => [f.path, f.ruleId, f.line])).toEqual([['a.ts', 'aws-access-token', 2]]);
         expect(result.findings[0].message).toContain(added);
         expect(result.findings[0].message).not.toContain(AWS);
+      },
+      240_000,
+    );
+
+    gitleaksIt(
+      'scans the history even when the cache answers for every file',
+      async () => {
+        const cacheDir = mkdtempSync(join(tmpdir(), 'qa-history-cache-'));
+        try {
+          for (let i = 0; i < 2; i++) {
+            const result = await run({
+              ...options({}),
+              root: repo,
+              changedFiles: gitRangeFiles(repo, 'main'),
+              source: commitSource(repo, 'HEAD'),
+              exclude: onlyCheck('secrets.gitleaks'),
+              cache: openCache(cacheDir),
+              pr: { base: 'main', branch: 'feat', commits: [], diff: [], coverage: [] },
+            });
+            expect(result.findings.map((f) => f.ruleId)).toEqual(['aws-access-token']);
+          }
+        } finally {
+          rmSync(cacheDir, { recursive: true, force: true });
+        }
+      },
+      240_000,
+    );
+
+    gitleaksIt(
+      'scans the history when the pull request leaves no file changed',
+      async () => {
+        const result = await run({
+          ...options({}),
+          root: repo,
+          changedFiles: [],
+          source: commitSource(repo, 'HEAD'),
+          exclude: onlyCheck('secrets.gitleaks'),
+          pr: { base: 'main', branch: 'feat', commits: [], diff: [], coverage: [] },
+        });
+        expect(result.engineErrors).toEqual([]);
+        expect(result.findings.map((f) => f.ruleId)).toEqual(['aws-access-token']);
       },
       240_000,
     );

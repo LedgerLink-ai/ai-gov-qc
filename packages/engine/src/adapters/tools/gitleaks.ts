@@ -160,6 +160,11 @@ const ruleText = (r: GitleaksResult): string => `${r.RuleID}${r.Description ? `:
  */
 export async function scanHistory(ctx: RunContext, def: CheckDefinition): Promise<Finding[]> {
   if (!ctx.pr) return [];
+  if (!version())
+    throw new ToolUnavailableError(
+      'gitleaks',
+      `"${binary()} version" did not run (run "qa setup", set QA_GITLEAKS_BIN or install gitleaks)`,
+    );
   const mergeBase = gitMergeBase(ctx.root, ctx.pr.base);
   if (!mergeBase) {
     throw new Error(
@@ -208,7 +213,8 @@ export async function scanHistory(ctx: RunContext, def: CheckDefinition): Promis
 /**
  * Scans exactly the changed files with LedgerLink's rules (config/gitleaks.toml:
  * the default rules plus private keys and BIP39 mnemonics), with redaction on.
- * In a pull request run it also scans the pull request's commits.
+ * The pull request's commits are scanned separately, by scanHistory, which
+ * the runner calls outside the result cache.
  */
 async function run(ctx: RunContext, def: CheckDefinition, files: ChangedFile[]): Promise<Finding[]> {
   if (!version())
@@ -235,11 +241,7 @@ async function run(ctx: RunContext, def: CheckDefinition, files: ChangedFile[]):
       };
     });
   });
-  if (!ctx.pr) return tree;
-  // A secret still in the final tree is reported once, by the tree scan.
-  const inTree = new Set(tree.map((f) => `${f.path}\0${f.fingerprintBasis}`));
-  const history = (await scanHistory(ctx, def)).filter((f) => !inTree.has(`${f.path}\0${f.fingerprintBasis}`));
-  return [...tree, ...history];
+  return tree;
 }
 
 export const gitleaks: ToolAdapter = {
@@ -248,4 +250,5 @@ export const gitleaks: ToolAdapter = {
   version,
   rulesHash: (ctx) => hashFiles(ctx.config.gitleaksConfig ? [ctx.config.gitleaksConfig] : []),
   run,
+  history: scanHistory,
 };
