@@ -14,6 +14,8 @@ The same engine runs at commit, at push and before a pull request, so a finding 
 
 Design: `LedgerLink QA Harness Technical Design` V2.2. Build order: `qa-harness-guide/IMPLEMENTATION_PLAN.md`.
 
+**Contents:** [What it does](#what-it-does) · [Requirements](#requirements) · [Where qa is installed](#where-qa-is-installed) · [Install](#install) · [For developers](#for-developers) · [Documentation](#documentation) · [Status and limits](#status-and-limits) · [Development](#development) · [Layout](#layout)
+
 ## What it does
 
 - **Hooks for every repository.** `qa setup` connects git's `pre-commit`, `prepare-commit-msg`, `commit-msg` and `pre-push` hooks for every clone on the machine through git's global `core.hooksPath`. Nothing is copied into any repository.
@@ -85,10 +87,26 @@ Then put `~/.ledgerlink-qa/bin` on your PATH and run `qa doctor` inside a Ledger
 
 The quick install does not check the package's SHA-256 or its build provenance attestation. Each release's notes have the step-by-step install that checks both, for each OS, and how to upgrade, uninstall and roll back. To remove qa, run `qa setup --uninstall` first and then `npm uninstall -g @ledgerlink/qa`.
 
+## For developers
+
+The rules every branch, commit and pull request follows, and what AI agents may and may not do, are in **[docs/RULES.md](docs/RULES.md)**. In short:
+
+| What                  | Rule                                                                                                                             |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Branch                | `<type>/<TICKET-123>-<short-description>`, e.g. `feature/LCORE-212-refund-idempotency`                                           |
+| Commit subject        | `<type>(<TICKET-123>): <description>`; the hook writes the prefix from the branch                                                |
+| AI help               | `Assisted-by: <tool>, <model>, <version>`; set a default once with `git config --global ledgerlink.assistedBy "..."` (or `none`) |
+| Never commit          | Secrets, floating-point money in payment or ledger code, instructions to AI tools to weaken a control, unapproved MCP servers    |
+| Before a pull request | `qa prepr`: branch, every commit, size (400 / 1,000 lines) and coverage (80%)                                                    |
+| AI agents             | Their own identity, `QA_ACTOR=agent`, every hook run, no protected paths                                                         |
+
+When a check stops a commit, the first line of its output says what was found and where; [docs/RULES.md](docs/RULES.md#6-when-a-check-stops-you) says what to do.
+
 ## Documentation
 
 | Topic                                              | Document                                                                       |
 | -------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Rules for developers and AI agents                 | [docs/RULES.md](docs/RULES.md)                                                 |
 | Install, configure, release, roll back, maintain   | [docs/OPERATIONS.md](docs/OPERATIONS.md)                                       |
 | The package: contents, hosting, releases           | [docs/PACKAGE.md](docs/PACKAGE.md)                                             |
 | Hooks on a developer's machine, and manual testing | [docs/PRECOMMIT.md](docs/PRECOMMIT.md)                                         |
@@ -186,6 +204,7 @@ conformance/fixtures/       planted defects; tree files are .tmpl templates
 packages/engine/            the qa engine and CLI, released as @ledgerlink/qa
 .github/workflows/          ci (Windows, macOS, Linux), release, branch policy
 docs/DECISIONS.md           defaults taken for open decisions
+docs/RULES.md               commit, pull request and AI agent rules for developers
 ```
 
 ### Conformance fixtures
