@@ -53,10 +53,12 @@ describe('generated fixture values', () => {
   it('are new on every run, with the requested shape', () => {
     const spec = {
       P: { random: 'password' as const, length: 16 },
+      L: { random: 'letters' as const, length: 20 },
       J: { random: 'base64url' as const, prefix: 'eyJ', parts: [10, 0, 5] },
       H: { random: 'hex' as const, length: 64 },
     };
-    const [p, j, h] = render(spec, '{{P}} {{J}} {{H}}').split(' ');
+    const [p, j, h, l] = render(spec, '{{P}} {{J}} {{H}} {{L}}').split(' ');
+    expect(l).toMatch(/^[B-DF-HJ-NP-TV-Zb-df-hj-np-tv-z]{20}$/);
     expect(p).toMatch(/^[0-9A-Za-z]{14}[!#%*~^][0-9]$/);
     expect(p).not.toMatch(/[aeiouxAEIOUX]/); // never spells test, fake, xxxx, ...
     expect(j).toMatch(/^eyJ[\w-]{10}\.\.[\w-]{5}$/);

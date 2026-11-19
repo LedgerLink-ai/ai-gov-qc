@@ -44,6 +44,8 @@ checks:
     stage: 1
     scope: file
     tags: all
+    # Deleting a protected file is a change to it, so deletions count here.
+    include_deleted: true
     controls: [C15-4]
     rules: [R11-6]
 

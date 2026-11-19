@@ -14,7 +14,7 @@ Linux. The GitHub CLI (`gh`) for verification.
 VERSION=0.2.4
 gh release download "v$VERSION" --repo LedgerLink-ai/ai-gov-qc --pattern "ledgerlink-qa-$VERSION.tgz*"
 sha256sum -c "ledgerlink-qa-$VERSION.tgz.sha256"                              # integrity
-gh attestation verify "ledgerlink-qa-$VERSION.tgz" --repo LedgerLink-ai/ai-gov-qc  # built by release.yml from a commit of this repository
+gh attestation verify "ledgerlink-qa-$VERSION.tgz" --repo LedgerLink-ai/ai-gov-qc   --signer-workflow LedgerLink-ai/ai-gov-qc/.github/workflows/release.yml   --source-ref refs/heads/main --deny-self-hosted-runners   # built by release.yml for main, on GitHub's runners
 npm install -g --ignore-scripts "./ledgerlink-qa-$VERSION.tgz"
 qa setup                    # pre-commit, Semgrep, Gitleaks at the pinned versions, hash-checked; the hooks for every repository
 git config --global ledgerlink.assistedBy "<tool>, <model>, <version>"    # "none" without AI tools
@@ -40,10 +40,16 @@ repository to
 release qa (the allowlist ships inside the package).
 
 **What qa writes.** `qa setup`: `~/.ledgerlink-qa` (or `QA_HOME`), including
-the hook scripts in `<qa home>/hooks`, and git's global `core.hooksPath`
-pointing at them, only if it is unset or already qa's (`qa setup
---uninstall` removes both; `--no-global-hooks` sets up the older per-clone
-git template instead). Hooks: nothing in the working tree. In a repository
+the hook scripts in `<qa home>/hooks`, the `qa` launchers that the hooks put
+first on `PATH` for pre-commit in `<qa home>/shims`, and git's global
+`core.hooksPath` pointing at the hooks, only if no system or global scope (or
+file they include) sets it to anything else (`qa setup --uninstall` removes
+the hooks and the setting; `--no-global-hooks` sets up the older per-clone
+git template instead). Setup names the scope and file of a foreign setting,
+and after writing checks that qa's value is the one git uses; `qa doctor`
+shows the value in use with its scope and file, and fails when another
+setting overrides qa's. After installing a new release, run `qa setup` again
+so the hook scripts are rewritten. Hooks: nothing in the working tree. In a repository
 without its own `.pre-commit-config.yaml`, the default configuration is copied
 to `.git/ledgerlink-qa/pre-commit-config.yaml` (git metadata, never committed),
 because pre-commit cannot use a configuration on another drive on Windows. The
@@ -103,6 +109,17 @@ refused to run (treat as a failure, never as a pass).
    section, install and verification commands. A failed release is retried
    with "Re-run jobs".
 4. Roll out: announce the `npm install` command.
+
+**Immutable releases (administrator, once).** Releases up to v0.2.3 are
+published with `immutable: false`: an administrator can still replace their
+assets, and only the attestation check would notice. Turn on immutable
+releases for `LedgerLink-ai/ai-gov-qc` (repository Settings, General,
+Releases, "Enable release immutability", or the organisation policy), so each
+release's assets and tag are locked once published. Check with
+`gh api repos/LedgerLink-ai/ai-gov-qc/releases/latest --jq .immutable`.
+Release tags are also protected by
+[`config/github/repo-ruleset-release-tags.json`](../config/github/repo-ruleset-release-tags.json)
+([ENFORCEMENT.md](ENFORCEMENT.md#this-repositorys-own-rulesets)).
 
 Version rules: semantic versioning; below 1.0 a minor version is breaking
 (`--require 0.2.3` accepts 0.2.x from 0.2.3, never 0.3.0). A configuration

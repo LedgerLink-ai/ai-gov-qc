@@ -36,6 +36,26 @@ Anything that must hold for every change has to be checked where the
 developer cannot skip it: on the pull request, by the checks run outside this
 repository, and by each repository's branch rulesets and code-owner review.
 
+## This repository's own rulesets
+
+The rules that protect qa itself are in `config/github/` too, and an
+administrator of `LedgerLink-ai/ai-gov-qc` applies them (repository settings,
+Rules, Rulesets; or `gh api -X PUT repos/LedgerLink-ai/ai-gov-qc/rulesets/<id> --input <file>`):
+
+| File                                                                                | Protects       | Rules                                                                                                                                                                                          |
+| ----------------------------------------------------------------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`repo-ruleset-main.json`](../config/github/repo-ruleset-main.json)                 | `main`         | Pull request with **one approval and code-owner review**, stale approvals dismissed, threads resolved, merge commits only (dev is merged into main); CI on three OSes and `branch-policy` pass |
+| [`repo-ruleset-dev.json`](../config/github/repo-ruleset-dev.json)                   | `dev`          | Pull request with **one approval and code-owner review**, stale approvals dismissed, threads resolved, squash or merge; CI on three OSes passes                                                |
+| [`repo-ruleset-release-tags.json`](../config/github/repo-ruleset-release-tags.json) | `refs/tags/v*` | Release tags cannot be created, moved or deleted, except by GitHub Actions (`release.yml` creates them)                                                                                        |
+
+As of 18 Nov 2026 the live `main` and `dev` rulesets require **no**
+approval and no code-owner review, so the code-owner review that the
+baseline, exemptions, allowlist and `.github/` rely on is not enforced in
+this repository until an administrator applies the two files above. The live
+release-tag ruleset blocks moving and deleting `v*` tags but not creating
+them; the file adds that. CODEOWNERS must name teams that exist, with write
+access, or code-owner review cannot be satisfied.
+
 ## Who can bypass
 
 | Control                    | Who can bypass                                                                                              | Recorded where            |
@@ -43,3 +63,9 @@ repository, and by each repository's branch rulesets and code-owner review.
 | Local hooks                | Anyone (`--no-verify`)                                                                                      | Nowhere                   |
 | A finding in a repository  | An exemption in `exemptions.yaml` (code-owner review, expiry date) or the dated baseline on the base branch | This repository's history |
 | A check, organisation-wide | `policy.yaml` (`mode: off` / `report`), reviewed by the Solution Architect                                  | This repository's history |
+
+Suppressions inside the checked repository do not count: `gitleaks:allow`
+and `nosemgrep` comments, `.gitleaksignore` and `.semgrepignore` are ignored,
+and scanner configuration files from the change never reach the scan. An
+exemption in `exemptions.yaml` and the dated baseline are the only
+suppressions.

@@ -106,20 +106,31 @@ tools:
 
 protected:
   # Agents must not edit these (AGENTS.md rule 3, C15-4). Humans may, with
-  # code-owner review (R11-6).
-  tags: [ci-config, signing]
-  # The hook configuration and the dated baseline are protected too: changing
-  # them changes what the checks block, so it needs code-owner review.
+  # code-owner review (R11-6). AI configuration (AGENTS.md, CLAUDE.md, .mcp.json,
+  # .cursor/, ...) is protected too: an agent must not rewrite its own
+  # instructions or the MCP servers it may call.
+  tags: [ci-config, signing, ai-config]
+  # The hook configuration, the dated baseline and the scanners' ignore files
+  # are protected too: changing them changes what the checks block, so it
+  # needs code-owner review. .github/** covers repositories whose path tags do
+  # not tag it. .env.* includes templates such as .env.example on purpose: they
+  # say which settings and secrets exist, so an agent asks the developer
+  # (humans only get a note).
   globs:
     [
+      '.github/**',
       '**/*.pem',
       '**/*.key',
       '**/*.p12',
       '**/*.pfx',
       '**/keys/**',
+      '**/secrets/**',
       '**/.env',
       '**/.env.*',
       '**/prod/**',
+      '**/.gitleaksignore',
+      '**/.gitleaks.toml',
+      '**/.semgrepignore',
       '.pre-commit-config.yaml',
       '.husky/**',
       '.qa/baseline.sarif',

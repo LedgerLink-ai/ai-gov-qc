@@ -2,7 +2,7 @@ export type Tag = string;
 export type Level = 'error' | 'warning' | 'note';
 export type Actor = 'human' | 'agent' | 'ci';
 export type RunMode = 'local' | 'ci';
-export type Scope = 'file' | 'branch' | 'commit' | 'pr' | 'release';
+export type Scope = 'file' | 'branch' | 'commit' | 'pr';
 export type PolicyMode = 'off' | 'report' | 'block';
 export type RegistryStatus = 'approved' | 'pending-inventory' | 'blocked' | 'retired';
 
@@ -58,6 +58,8 @@ export interface CheckDefinition {
   scope: Scope;
   tags: 'all' | Tag[];
   extra_globs?: string[];
+  /** The check looks at paths, not contents, so deleted files apply to it too. */
+  include_deleted?: boolean;
   controls: string[];
   rules: string[];
   /** Where a check comes from when no capability control or rule covers it. */
@@ -180,13 +182,28 @@ export interface ChangedFile {
   /** Repository-relative, forward slashes. */
   path: string;
   status: 'A' | 'M' | 'D' | 'R';
+  /**
+   * For a rename (status R), the path the file moved away from. Moving a file
+   * away removes it from its old path, which matters for protected paths.
+   */
+  oldPath?: string;
 }
 
 export interface FileSource {
   readonly kind: 'index' | 'worktree' | 'dir' | 'commit';
   readonly root: string;
-  /** Text content, or undefined for deleted, missing or binary files. */
+  /**
+   * Text content (UTF-8, or UTF-16 with a byte order mark; a UTF-8 byte order
+   * mark is removed), or undefined for deleted, missing, binary or too large
+   * files.
+   */
   read(path: string): string | undefined;
+  /**
+   * The raw bytes, or undefined for deleted or missing files. Lets a scanner
+   * see a file that is not text, and lets the runner tell a file that exists
+   * but cannot be read as text from one that is not there.
+   */
+  readBytes?(path: string): Buffer | undefined;
 }
 
 export interface RunContext {

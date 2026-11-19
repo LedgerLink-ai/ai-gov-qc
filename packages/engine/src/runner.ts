@@ -97,7 +97,7 @@ function buildContext(opts: RunOptions): RunContext {
         extraMatchers.set(def.id, extra);
       }
       return opts.changedFiles.filter((f) => {
-        if (f.status === 'D') return false;
+        if (f.status === 'D' && !def.include_deleted) return false;
         if (def.tags === 'all') return true;
         const own = fileTags.get(f.path);
         return def.tags.some((t) => own?.has(t)) || extra(f.path);
@@ -125,10 +125,10 @@ function notApplicable(def: CheckDefinition, ctx: RunContext, opts: RunOptions):
       return ctx.commitMessage === undefined ? 'no commit message in this run' : undefined;
     case 'pr':
       return ctx.pr === undefined ? STAGE_RUNS[3] : undefined;
-    case 'release':
-      return `scope ${def.scope} runs in the gate or release job`;
     case 'file':
       if (ctx.filesFor(def).length > 0) return undefined;
+      // A pull request can add and remove a file, leaving nothing changed but history to scan.
+      if (ctx.pr && def.kind === 'tool' && TOOL_ADAPTERS[def.tool as string]?.history) return undefined;
       return def.tags === 'all' ? 'no changed files' : `no changed file carries ${def.tags.join(', ')}`;
   }
 }
@@ -145,9 +145,21 @@ interface Outcome {
  * and only the rest go to the scanner.
  */
 async function runTool(def: CheckDefinition, ctx: RunContext, cache?: ResultCache): Promise<Outcome> {
+  const tree = await runToolOnFiles(def, ctx, cache);
+  const adapter = TOOL_ADAPTERS[def.tool as string];
+  if (!ctx.pr || !adapter.history) return tree;
+  // Outside the cache: history is not a property of any one file's content.
+  // A finding still in the final files is reported once, by the file scan.
+  const inTree = new Set(tree.findings.map((f) => `${f.path}\0${f.fingerprintBasis}`));
+  const history = (await adapter.history(ctx, def)).filter((f) => !inTree.has(`${f.path}\0${f.fingerprintBasis}`));
+  return { ...tree, findings: [...tree.findings, ...history] };
+}
+
+async function runToolOnFiles(def: CheckDefinition, ctx: RunContext, cache?: ResultCache): Promise<Outcome> {
   const adapter = TOOL_ADAPTERS[def.tool as string];
   const files = ctx.filesFor(def);
   const toolVersion = adapter.available() ? adapter.version() : undefined;
+  if (files.length === 0) return { findings: [], toolVersion };
   if (!cache || !toolVersion) return { findings: await adapter.run(ctx, def, files), toolVersion };
 
   const rulesHash = adapter.rulesHash(ctx);
@@ -175,8 +187,53 @@ async function runTool(def: CheckDefinition, ctx: RunContext, cache?: ResultCach
   return { findings: [...hits, ...fresh], toolVersion, cachedFiles: files.length - misses.length };
 }
 
+/**
+ * A file a native check asked for that exists but could not be read as text
+ * (binary, larger than 2 MB, or an encoding qa does not read): the check did
+ * not look at it, and the run says so instead of passing it silently. An
+ * error in CI (fail closed), a warning locally.
+ */
+function unscannable(def: CheckDefinition, ctx: RunContext, path: string): Finding {
+  return {
+    checkId: def.id,
+    ruleId: 'unscannable',
+    level: ctx.mode === 'ci' ? 'error' : 'warning',
+    path,
+    message: `${def.id} could not read this file as text (binary, larger than 2 MB, or an unsupported encoding), so it was not checked.`,
+    fixHint:
+      'Save the file as UTF-8 (or UTF-16 with a byte order mark), keep it under 2 MB, or ask a code owner for an exemption.',
+    fingerprintBasis: 'unscannable',
+  };
+}
+
+/** `source`, also recording each path that exists but read() could not return as text. */
+function trackingSource(source: FileSource, unreadable: Set<string>): FileSource {
+  return {
+    kind: source.kind,
+    root: source.root,
+    read(path) {
+      const text = source.read(path);
+      if (text === undefined && source.readBytes) {
+        let exists: boolean;
+        try {
+          exists = source.readBytes(path) !== undefined;
+        } catch {
+          exists = true; // there, but too large to read at all
+        }
+        if (exists) unreadable.add(path);
+      }
+      return text;
+    },
+    ...(source.readBytes ? { readBytes: (path: string) => source.readBytes?.(path) } : {}),
+  };
+}
+
 async function runOne(def: CheckDefinition, ctx: RunContext, cache?: ResultCache): Promise<Outcome> {
-  if (def.kind === 'native') return { findings: await NATIVE_CHECKS[def.id](ctx, def) };
+  if (def.kind === 'native') {
+    const unreadable = new Set<string>();
+    const findings = await NATIVE_CHECKS[def.id]({ ...ctx, source: trackingSource(ctx.source, unreadable) }, def);
+    return { findings: [...findings, ...[...unreadable].sort().map((p) => unscannable(def, ctx, p))] };
+  }
   return runTool(def, ctx, cache);
 }
 
@@ -191,17 +248,17 @@ function evaluate(finding: Finding, def: CheckDefinition, opts: RunOptions): Eva
     effectiveMode: mode,
     blocking: false,
   };
-  if (opts.baseline?.has(fp)) {
+  // Exemptions come first: an exemption that has expired makes its finding
+  // block again, even when a baseline was taken while the exemption was active.
+  const { active, expired } = findExemption(opts.config.exemptions, opts.repo, finding, opts.asOf);
+  if (active) {
+    evaluated.suppressedBy = 'exemption';
+    evaluated.suppressionNote = `Exemption ${active.id} (owner ${active.owner}) until ${active.expires}.`;
+  } else if (expired) {
+    evaluated.suppressionNote = `Exemption ${expired.id} expired on ${expired.expires}; the baseline does not cover it.`;
+  } else if (opts.baseline?.has(fp)) {
     evaluated.suppressedBy = 'baseline';
     evaluated.suppressionNote = 'Present in the dated baseline; reported, not blocking (P9).';
-  } else {
-    const { active, expired } = findExemption(opts.config.exemptions, opts.repo, finding, opts.asOf);
-    if (active) {
-      evaluated.suppressedBy = 'exemption';
-      evaluated.suppressionNote = `Exemption ${active.id} (owner ${active.owner}) until ${active.expires}.`;
-    } else if (expired) {
-      evaluated.suppressionNote = `Exemption ${expired.id} expired on ${expired.expires}.`;
-    }
   }
   evaluated.blocking = finding.level === 'error' && mode === 'block' && !evaluated.suppressedBy;
   return evaluated;

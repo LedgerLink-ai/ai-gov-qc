@@ -134,10 +134,21 @@ describe('the baseline', () => {
 
 describe('pinned dependencies and hook versions', () => {
   const workflowsDir = join(CONFIG_DIR, '.github', 'workflows');
+  const templatesDir = join(CONFIG_DIR, 'templates');
+  // The workflows of this repository, and the workflow templates other repositories copy.
+  const workflowFiles = (): string[] => [
+    ...readdirSync(workflowsDir)
+      .filter((f) => f.endsWith('.yml'))
+      .map((f) => join(workflowsDir, f)),
+    ...readdirSync(templatesDir)
+      .filter((f) => f.endsWith('.yml'))
+      .map((f) => join(templatesDir, f)),
+  ];
 
-  it('every GitHub Action is pinned to a full commit SHA', () => {
-    for (const file of readdirSync(workflowsDir).filter((f) => f.endsWith('.yml'))) {
-      const text = readFileSync(join(workflowsDir, file), 'utf8');
+  it('every GitHub Action and reusable workflow is pinned to a full commit SHA, templates included', () => {
+    const files = workflowFiles();
+    for (const file of files) {
+      const text = readFileSync(file, 'utf8');
       for (const m of text.matchAll(/^\s*(?:-\s*)?uses:\s*(\S+)/gm)) {
         const ref = m[1];
         if (ref.startsWith('./')) continue;
@@ -147,8 +158,8 @@ describe('pinned dependencies and hook versions', () => {
   });
 
   it('workflows default to read-only tokens and parse as YAML', () => {
-    for (const file of readdirSync(workflowsDir).filter((f) => f.endsWith('.yml'))) {
-      const wf = parseYaml(readFileSync(join(workflowsDir, file), 'utf8')) as { permissions?: unknown };
+    for (const file of workflowFiles()) {
+      const wf = parseYaml(readFileSync(file, 'utf8')) as { permissions?: unknown };
       expect({ file, permissions: wf.permissions }).toEqual({
         file,
         permissions: expect.anything(),
@@ -196,6 +207,49 @@ describe('pinned dependencies and hook versions', () => {
     const pin = config().policy.tools?.gitleaks as string;
     const sums = readFileSync(join(CONFIG_DIR, 'config', `gitleaks_${pin}_checksums.txt`), 'utf8');
     expect(sums).toMatch(/^[0-9a-f]{64}\s+gitleaks_/m);
+  });
+});
+
+describe('the rulesets in config/github', () => {
+  const dir = join(CONFIG_DIR, 'config', 'github');
+  interface Ruleset {
+    target: string;
+    conditions: { ref_name: { include: string[] } };
+    rules: Array<{ type: string; parameters?: Record<string, unknown> }>;
+  }
+  const rulesets = (): Array<[string, Ruleset]> =>
+    readdirSync(dir)
+      .filter((f) => f.endsWith('.json'))
+      .map((f) => [f, JSON.parse(readFileSync(join(dir, f), 'utf8')) as Ruleset]);
+
+  it('every branch ruleset requires an approving code-owner review and dismisses stale approvals', () => {
+    const branches = rulesets().filter(([, r]) => r.target === 'branch');
+    expect(branches.map(([f]) => f)).toEqual(
+      expect.arrayContaining(['repo-ruleset-main.json', 'repo-ruleset-dev.json']),
+    );
+    for (const [file, r] of branches) {
+      const pr = r.rules.find((x) => x.type === 'pull_request')?.parameters ?? {};
+      expect({ file, approvals: (pr.required_approving_review_count as number) >= 1 }).toEqual({
+        file,
+        approvals: true,
+      });
+      expect({ file, codeOwners: pr.require_code_owner_review, stale: pr.dismiss_stale_reviews_on_push }).toEqual({
+        file,
+        codeOwners: true,
+        stale: true,
+      });
+      for (const rule of ['deletion', 'non_fast_forward']) expect(r.rules.map((x) => x.type)).toContain(rule);
+    }
+  });
+
+  it('main takes merge commits only (dev is merged into it), and release tags cannot be created, moved or deleted by hand', () => {
+    const byFile = new Map(rulesets());
+    const main = byFile.get('repo-ruleset-main.json');
+    expect(main?.rules.find((x) => x.type === 'pull_request')?.parameters?.allowed_merge_methods).toEqual(['merge']);
+    const tags = byFile.get('repo-ruleset-release-tags.json');
+    expect(tags?.target).toBe('tag');
+    expect(tags?.conditions.ref_name.include).toEqual(['refs/tags/v*']);
+    expect(tags?.rules.map((x) => x.type).sort()).toEqual(['creation', 'deletion', 'non_fast_forward', 'update']);
   });
 });
 

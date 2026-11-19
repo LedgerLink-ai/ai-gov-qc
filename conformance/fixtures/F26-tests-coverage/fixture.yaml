@@ -1,0 +1,16 @@
+id: F26
+title: Line coverage from the test run below the threshold is reported (tests.coverage)
+repo: link_core
+actor: human
+as_of: 2027-01-08
+pr:
+  branch: feature/LCORE-214-refund-tests
+  commits:
+    - message: 'test(LCORE-214): cover refunds'
+  coverage:
+    - { file: coverage/coverage-summary.json, lines_pct: 42 }
+exact: true
+expect:
+  - check: tests.coverage
+    path: coverage/coverage-summary.json
+    blocking: false
