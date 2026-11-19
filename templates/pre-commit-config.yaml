@@ -48,10 +48,8 @@
 # script names, and delete what does not apply.
 #
 # Local hooks can be skipped with --no-verify, and a developer controls their
-# own machine. They are fast feedback, not the control: the pull request runs
-# every qa check again in the required "qa / pull request checks" workflow
-# (templates/qa-pr-caller.yml, docs/ENFORCEMENT.md), with the configuration
-# released with qa, where they cannot be skipped.
+# own machine. They are fast feedback, not an enforcement point; pull requests
+# are checked outside ai-gov-qc (docs/ENFORCEMENT.md).
 #
 # Hook versions are pinned: qa by "--require", pre-commit-hooks by commit SHA
 # (frozen), so a moved tag cannot change what runs.

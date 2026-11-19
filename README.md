@@ -10,7 +10,7 @@ Developers install the package once. It then checks every commit and push in Led
 - risky code;
 - ticket-based branch and commit conventions.
 
-The same engine runs at commit, at push, before a pull request and in the CI pull request gate, so a finding is identical whichever path found it.
+The same engine runs at commit, at push and before a pull request, so a finding is identical whichever path found it.
 
 Design: `LedgerLink QA Harness Technical Design` V2.2. Build order: `qa-harness-guide/IMPLEMENTATION_PLAN.md`.
 
@@ -93,7 +93,7 @@ The quick install does not check the package's SHA-256 or its build provenance a
 | The package: contents, hosting, releases           | [docs/PACKAGE.md](docs/PACKAGE.md)                                             |
 | Hooks on a developer's machine, and manual testing | [docs/PRECOMMIT.md](docs/PRECOMMIT.md)                                         |
 | Branch names and commit messages                   | [docs/BRANCH-AND-COMMIT-CONVENTIONS.md](docs/BRANCH-AND-COMMIT-CONVENTIONS.md) |
-| Pull request gate, rulesets, limits of local hooks | [docs/ENFORCEMENT.md](docs/ENFORCEMENT.md)                                     |
+| Limits of local hooks; pull requests               | [docs/ENFORCEMENT.md](docs/ENFORCEMENT.md)                                     |
 | Security review, threat model, residual risks      | [docs/SECURITY.md](docs/SECURITY.md)                                           |
 | Benchmarks                                         | [docs/PERFORMANCE.md](docs/PERFORMANCE.md)                                     |
 | Test suites                                        | [docs/TESTING.md](docs/TESTING.md)                                             |
@@ -110,7 +110,7 @@ The quick install does not check the package's SHA-256 or its build provenance a
 
   Also done: the execution gate, hooks for every repository, the package with automatic releases, and the production hardening (issue #15).
 
-- **Not enabled yet:** the pull request gate. `.github/workflows/qa-pr.yml` ships, but no repository requires it yet, so pull requests are not checked by qa in CI. Until then, the checks run only on developers' machines, where they cannot be enforced; [docs/ENFORCEMENT.md](docs/ENFORCEMENT.md) explains the limits of local hooks.
+- **Pull requests are checked outside this repository.** The GitHub pull request gate was removed (AIQC-92). qa's checks run on developers' machines, where they cannot be enforced; [docs/ENFORCEMENT.md](docs/ENFORCEMENT.md) explains the limits of local hooks.
 - **Not built yet:** the MCP server, `qa init` and the onboarding and offboarding commands (issue #14).
 
 ## Development
@@ -180,11 +180,11 @@ schemas/                    JSON schemas for all of the above and for fixtures
 config/gitleaks.toml        Gitleaks rules used by secrets.gitleaks (generated: npm run gen:gitleaks)
 config/semgrep/             fast Semgrep rule set used by sast.semgrep at pre-push
 .pre-commit-hooks.yaml      the hooks this repository provides to LedgerLink repositories
-templates/                  the default hook configuration, the PR gate caller, the release notes
+templates/                  the default hook configuration, the release notes
 scripts/                    package and release checks, local release, sandbox, Gitleaks config generator
 conformance/fixtures/       planted defects; tree files are .tmpl templates
 packages/engine/            the qa engine and CLI, released as @ledgerlink/qa
-.github/workflows/          ci (Windows, macOS, Linux), release, branch policy, the qa-pr gate
+.github/workflows/          ci (Windows, macOS, Linux), release, branch policy
 docs/DECISIONS.md           defaults taken for open decisions
 ```
 
