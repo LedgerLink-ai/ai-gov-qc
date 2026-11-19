@@ -20,11 +20,11 @@ npm run validate
 npm run conform
 ```
 
-| Command            | Expected result                                                                                                                                                                                                            |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm test`         | `Tests: 56 passed, 56 total`                                                                                                                                                                                               |
-| `npm run validate` | `Configuration valid` and `7 checks, 11 tags, 4 AI tools, 1 MCP servers, 0 exemptions`                                                                                                                                     |
-| `npm run conform`  | `16 pass, 0 fail, 0 skipped, 0 pending` (about 80 s). Without Gitleaks, F01, F02 and F07–F09 are skipped; without Semgrep, F12. Each fixture shows `(paths: api, cli)`, meaning both entry points gave identical findings. |
+| Command            | Expected result                                                                                                                                                                                                                                                                                                                          |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm test`         | `Tests: 56 passed, 56 total`                                                                                                                                                                                                                                                                                                             |
+| `npm run validate` | `Configuration valid` and `7 checks, 11 tags, 4 AI tools, 1 MCP servers, 0 exemptions`                                                                                                                                                                                                                                                   |
+| `npm run conform`  | Every fixture `PASS`, `0 fail, 0 skipped, 0 pending` (a few minutes). Without Gitleaks, F01, F02 and F07–F09 are skipped; without Semgrep, F12; CI runs `npm run conform -- --require-all`, where a skipped or pending fixture fails the run. Each fixture shows `(paths: api, cli)`, meaning both entry points gave identical findings. |
 
 ## 2. Try each check by hand in a sandbox repository
 
@@ -113,20 +113,46 @@ Undo your edits afterwards, then run `npm test`.
 
 `npm test` (after `npm run build`; CI runs it on Linux, macOS and Windows):
 
-| Kind                   | Where                                                                                                                                                                                                                                                                                                                         |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Unit                   | `config`, `runner`, `content-lint`, `mcp-allowlist`, `commit-trailer`, `pr-rules`, `prepare-message`, `conventions` (branch names and commit messages, AIQC-87), `setup`, `exec`, `redact`                                                                                                                                    |
-| Integration            | `git.test.ts` (real git repositories), `runner-hardening.test.ts` (timeouts, parallel checks, cache, evidence), `publish.test.ts` (a local collector)                                                                                                                                                                         |
-| End to end             | `cli-e2e.test.ts` (the built CLI: exit codes, gate, configuration trust, JSON logs, baseline in CI, agent rules), `branch-commit-cli.test.ts` (commits through the pre-commit, prepare-commit-msg and commit-msg hooks, in block and report mode), `conformance.test.ts` and `npm run conform` (fixtures through API and CLI) |
-| Git hook lifecycle     | `hooks-lifecycle.test.ts`: hooks installed in a clone; commit, message pre-fill, block, `--no-verify`, push, push blocked by Semgrep                                                                                                                                                                                          |
-| Security               | `security.test.ts` (configuration trust, injection, URLs, baseline, pinned actions, hooks and Python dependencies, release check), `exec.test.ts`, `redact.test.ts`                                                                                                                                                           |
-| Negative authorization | `gate.test.ts` (29 cases), `cli-e2e.test.ts` (not allowlisted, configuration from the repository)                                                                                                                                                                                                                             |
-| Performance            | `performance.test.ts` (guards), `scripts/benchmark.js` in CI ([PERFORMANCE.md](PERFORMANCE.md))                                                                                                                                                                                                                               |
-| Cross-platform         | the `ci` workflow matrix: ubuntu, windows, macos                                                                                                                                                                                                                                                                              |
+| Kind                   | Where                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unit                   | `config`, `runner`, `content-lint`, `mcp-allowlist`, `commit-trailer`, `pr-rules`, `prepare-message`, `conventions` (branch names and commit messages, AIQC-87), `setup`, `exec`, `redact`                                                                                                                                                                                                                                               |
+| Integration            | `git.test.ts` (real git repositories), `runner-hardening.test.ts` (timeouts, parallel checks, cache, evidence), `publish.test.ts` (a local collector)                                                                                                                                                                                                                                                                                    |
+| End to end             | `prepr-gate.test.ts` (`qa prepr` in CI: agent rules from AI-declared commits, committed coverage ignored), `cli-e2e.test.ts` (the built CLI: exit codes, gate, configuration trust, JSON logs, baseline in CI, agent rules), `branch-commit-cli.test.ts` (commits through the pre-commit, prepare-commit-msg and commit-msg hooks, in block and report mode), `conformance.test.ts` and `npm run conform` (fixtures through API and CLI) |
+| Git hook lifecycle     | `hooks-lifecycle.test.ts`: hooks installed in a clone; commit, message pre-fill, block, `--no-verify`, push, push blocked by Semgrep                                                                                                                                                                                                                                                                                                     |
+| Security               | `security.test.ts` (configuration trust, injection, URLs, baseline, pinned actions, hooks and Python dependencies, release check), `exec.test.ts`, `redact.test.ts`                                                                                                                                                                                                                                                                      |
+| Negative authorization | `gate.test.ts` (29 cases), `cli-e2e.test.ts` (not allowlisted, configuration from the repository)                                                                                                                                                                                                                                                                                                                                        |
+| Performance            | `performance.test.ts` (guards), `scripts/benchmark.js` in CI ([PERFORMANCE.md](PERFORMANCE.md))                                                                                                                                                                                                                                                                                                                                          |
+| Cross-platform         | the `ci` workflow matrix: ubuntu, windows, macos                                                                                                                                                                                                                                                                                                                                                                                         |
 
-Every check profile has automated tests: each check has unit tests and a
-conformance fixture, each hook stage (pre-commit, prepare-commit-msg,
-pre-push, pre-PR) runs end to end.
+Every check has unit tests, and each hook stage (pre-commit,
+prepare-commit-msg, commit-msg, pre-push, pre-PR) runs end to end. The
+conformance fixtures cover every check in `checks.yaml` through both the API
+and the CLI path:
+
+| Check                             | Fixtures                                                        |
+| --------------------------------- | --------------------------------------------------------------- |
+| `secrets.gitleaks`                | F01, F02, F07–F09                                               |
+| `ai-config.content-lint`          | F00, F03, F03b, F10                                             |
+| `ai-config.mcp-allowlist`         | F00, F04, F04b                                                  |
+| `paths.protected`                 | F05, F05b, F17 (rename), F18 (deletion), F19 (AI configuration) |
+| `commit.trailer`                  | F06, F11                                                        |
+| `branch.ticket`, `commit.message` | F15, F16                                                        |
+| `sast.semgrep`                    | F12                                                             |
+| `pr.branch-name`                  | F20                                                             |
+| `pr.commits`                      | F21                                                             |
+| `pr.commit-messages`              | F22                                                             |
+| `pr.diff-size`                    | F23                                                             |
+| `tests.coverage`                  | F24, F25 (committed summary ignored in CI)                      |
+
+A fixture is a `fixture.yaml` (schema: `schemas/fixture.schema.json`) and a
+`tree/` of `.tmpl` files. Without `operations` or `pr` the tree is a loose
+folder and every file counts as added (`qa check --all`). With `operations`
+(`rename: {from, to}`, `delete: <path>`, `write: {path, lines | text}`) or
+`pr` (`branch`, `commits` with messages, `coverage` the test run wrote), the
+tree is committed on `main` in a git repository, the operations are committed
+on the branch, and both paths read the change from git: the API path with
+the engine's git functions, the CLI path with `qa check --base main` or
+`qa prepr --base main` in CI mode.
 
 ## What is not covered yet
 
