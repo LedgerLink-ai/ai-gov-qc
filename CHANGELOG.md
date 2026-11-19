@@ -9,6 +9,33 @@ Versions follow semantic versioning. Below 1.0, a minor version is a major one:
 that a repository pinned to an earlier compatible version can install without
 changing its hooks.
 
+## 0.2.4
+
+Readable hook output, and the real reason in IDE commit pop-ups (AIQC-88).
+Compatible with 0.2.x: nothing about what is checked or what blocks changes.
+
+- When a commit, commit message or push is stopped, the hooks print one
+  summary line: what was found and where (`qa: commit blocked: possible
+secret: GitHub Personal Access Token (github-pat) in src/config.ts line 12`),
+  or which hook failed.
+- Without a terminal (VS Code's commit button and other IDEs), the hook
+  collects the output and prints the summary line first, so the pop-up, which
+  shows only the first line, says why. In a terminal the output streams as
+  before and the summary is the last line. `QA_HOOK_OUTPUT=stream|buffer`
+  chooses.
+- The text report puts each finding's message, fix and rule ids on their own
+  lines. Checks that did not run are counted, and listed only with the new
+  `--verbose` flag; checks deferred to CI and checks that could not run are
+  always shown.
+- Text logs say in words what happened (`secrets.gitleaks did not run here
+(...); CI runs it`) instead of printing the event as JSON. JSON logs are
+  unchanged.
+- Gitleaks findings name the kind of secret plainly ("GitHub Personal Access
+  Token") instead of repeating the scanner's whole description.
+- The default hook configuration no longer marks the repository's own
+  Prettier, ESLint, tests, type check and build hooks as verbose, so a passing
+  run does not print their `- hook id` and `- duration` lines.
+
 ## 0.2.3
 
 Upgrading from 0.2.2
