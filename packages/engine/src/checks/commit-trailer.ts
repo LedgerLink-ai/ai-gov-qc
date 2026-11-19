@@ -12,8 +12,26 @@ export const TRAILER_FORM = `${TRAILER}: <tool>, <model>, <version>`;
 const TRAILER_LINE = /^Assisted-by:\s*(.*)$/i;
 const CO_AUTHOR_LINE = /^Co-authored-by:\s*(.*)$/i;
 const VERSION = /^v?\d+(?:\.\d+){0,3}(?:[-+][0-9A-Za-z.-]+)?$/;
-// `git commit -v` appends the diff below this line; git removes it, so do we.
-const SCISSORS = /^# -+ >8 -+$/;
+
+/** git's default comment prefix (core.commentChar, core.commentString). */
+export const DEFAULT_COMMENT = '#';
+let commentPrefix = DEFAULT_COMMENT;
+
+/**
+ * The comment prefix messageLines uses when none is given. The commit-msg
+ * hook sets it from the repository's core.commentChar before the message
+ * checks run; everything else reads messages git already cleaned up.
+ */
+export function useCommentString(comment: string | undefined): void {
+  commentPrefix = comment && comment.length > 0 ? comment : DEFAULT_COMMENT;
+}
+
+const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** `git commit -v` appends the diff below this line ("# ---- >8 ----"); git removes it, so do we. */
+export function scissorsLine(comment: string = DEFAULT_COMMENT): RegExp {
+  return new RegExp(`^${escapeRe(comment)} -+ >8 -+$`);
+}
 
 export interface TrailerValue {
   tool: string;
@@ -22,11 +40,12 @@ export interface TrailerValue {
 }
 
 /** Message lines as git will store them: no comment lines, nothing below the scissors. */
-export function messageLines(message: string): string[] {
+export function messageLines(message: string, comment: string = commentPrefix): string[] {
   const lines: string[] = [];
+  const scissors = scissorsLine(comment);
   for (const raw of message.split(/\r?\n/)) {
-    if (SCISSORS.test(raw)) break;
-    if (!raw.startsWith('#')) lines.push(raw.trim());
+    if (scissors.test(raw)) break;
+    if (!raw.startsWith(comment)) lines.push(raw.trim());
   }
   return lines;
 }
@@ -51,9 +70,30 @@ export function findTool(registry: AiRegistry, name: string): ToolEntry | undefi
   return registry.tools.find((t) => t.id === wanted || t.name.toLowerCase().replace(/\s+/g, '-') === wanted);
 }
 
+/**
+ * The AI tool a Co-authored-by value ("Name <email>") names, by the tool's
+ * trailer_aliases in the AI registry. An alias with an @ is an email address
+ * and must equal the co-author's address. Any other alias is a bot or tool
+ * name and must be a whole word of the co-author's name ("Copilot",
+ * "copilot-swe-agent[bot]") or the login of a GitHub no-reply address
+ * (123+Copilot@users.noreply.github.com). Part of a word never matches, so
+ * "Jane Codexter" and bob@copilotlabs.io stay human co-authors.
+ */
 export function toolForAlias(registry: AiRegistry, value: string): ToolEntry | undefined {
-  const lower = value.toLowerCase();
-  return registry.tools.find((t) => (t.trailer_aliases ?? []).some((a) => lower.includes(a.toLowerCase())));
+  const text = value.trim();
+  const angle = /^(.*?)\s*<([^<>]*)>$/.exec(text);
+  const bareEmail = !angle && /^\S+@\S+$/.test(text);
+  const name = (angle ? angle[1] : bareEmail ? '' : text).trim().toLowerCase();
+  const email = (angle ? angle[2] : bareEmail ? text : '').trim().toLowerCase();
+  const login = /^(?:\d+\+)?([^@\s]+)@users\.noreply\.github\.com$/.exec(email)?.[1]?.replace(/\[bot\]$/, '');
+  const matches = (raw: string): boolean => {
+    const alias = raw.trim().toLowerCase();
+    if (alias === '') return false;
+    if (alias.includes('@')) return email === alias;
+    if (login === alias) return true;
+    return new RegExp(`(?:^|[^a-z0-9])${escapeRe(alias)}(?:$|[^a-z0-9])`).test(name);
+  };
+  return registry.tools.find((t) => (t.trailer_aliases ?? []).some(matches));
 }
 
 export function checkTrailers(checkId: string, message: string, registry: AiRegistry): Finding[] {

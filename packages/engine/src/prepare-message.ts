@@ -1,4 +1,15 @@
-import { findTool, parseTrailerValue, toolForAlias, TRAILER, TRAILER_FORM } from './checks/commit-trailer';
+import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import {
+  DEFAULT_COMMENT,
+  findTool,
+  parseTrailerValue,
+  scissorsLine,
+  toolForAlias,
+  TRAILER,
+  TRAILER_FORM,
+} from './checks/commit-trailer';
 import {
   analyseBranch,
   DEFAULT_CONVENTIONS,
@@ -28,8 +39,10 @@ import type { AiRegistry } from './types';
 // did not run.
 //
 // Messages git writes itself are left alone: merges, squashes, amends and
-// -c/-C reuse (the hook's source argument), and fixup!/squash!/amend! and
-// Revert "..." subjects.
+// -c/-C reuse (the hook's source argument), fixup!/squash!/amend! and
+// Revert "..." subjects, and every commit replayed by a rebase, cherry-pick or
+// revert (git passes source "message" for those, so replayState below tells
+// them apart), including any commit made on a detached HEAD.
 
 export interface PrepareInput {
   message: string;
@@ -41,6 +54,66 @@ export interface PrepareInput {
   registry?: AiRegistry;
   /** The repository's branch and commit conventions; the defaults when absent. */
   conventions?: Conventions;
+  /** git's comment prefix (core.commentChar or core.commentString); "#" when absent. */
+  comment?: string;
+  /** Set (replayState) while git replays existing commits: the message is left exactly as it is. */
+  replaying?: string;
+}
+
+/** The characters core.commentChar=auto picks from, in git's order. */
+const AUTO_COMMENT_CHARS = ['#', ';', '@', '!', '$', '%', '^', '&', '|', ':'];
+
+/**
+ * The comment prefix git uses for this message, from the configured value
+ * (core.commentChar / core.commentString; undefined when neither is set).
+ * For "auto", git picks the first of # ; @ ! $ % ^ & | : that starts no line
+ * of the message and comments its template with it, so: the prefix of the
+ * scissors line, else of a line that is only a comment prefix (git's template
+ * has one), else git's own rule applied to the message.
+ */
+export function commentFor(configured: string | undefined, message: string): string {
+  if (configured === undefined || configured === '') return DEFAULT_COMMENT;
+  if (configured.toLowerCase() !== 'auto') return configured;
+  const lines = message.split(/\r?\n/);
+  for (const c of AUTO_COMMENT_CHARS) if (lines.some((l) => scissorsLine(c).test(l))) return c;
+  for (const c of AUTO_COMMENT_CHARS) if (lines.some((l) => l === c)) return c;
+  return AUTO_COMMENT_CHARS.find((c) => !lines.some((l) => l.startsWith(c))) ?? DEFAULT_COMMENT;
+}
+
+const gitOut = (cwd: string, args: string[]): string | undefined => {
+  const r = spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true });
+  return r.status === 0 && !r.error ? r.stdout : undefined;
+};
+
+/**
+ * The repository's comment prefix for this message. core.commentChar and
+ * core.commentString are the same setting to git; the last one set wins.
+ */
+export function gitCommentString(cwd: string, message: string): string {
+  const out = gitOut(cwd, ['config', '--get-regexp', '^core\\.comment(char|string)$']) ?? '';
+  const values = out
+    .split(/\r?\n/)
+    .filter((l) => l.trim() !== '')
+    .map((l) => l.replace(/^\S+ ?/, ''));
+  return commentFor(values.at(-1), message);
+}
+
+/** git's markers for a rebase, cherry-pick, revert or sequence of them in progress. */
+const REPLAY_MARKERS = ['rebase-merge', 'rebase-apply', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'sequencer'];
+
+/**
+ * Why git is replaying existing commits in the repository at cwd (a rebase,
+ * cherry-pick or revert in progress, or a detached HEAD), else undefined.
+ * Their messages are someone's finished work and are not pre-filled again.
+ */
+export function replayState(cwd: string): string | undefined {
+  for (const marker of REPLAY_MARKERS) {
+    const path = gitOut(cwd, ['rev-parse', '--git-path', marker])?.trim();
+    if (path && existsSync(resolve(cwd, path))) return `${marker} in progress`;
+  }
+  const head = spawnSync('git', ['symbolic-ref', '-q', 'HEAD'], { cwd, encoding: 'utf8', windowsHide: true });
+  if (head.status === 1) return 'HEAD is detached';
+  return undefined;
 }
 
 export interface PrepareResult {
@@ -56,7 +129,6 @@ const GIT_SUBJECT = /^(?:(?:fixup|squash|amend)! |Revert ")/;
 const TRAILER_LINE = /^[A-Za-z][A-Za-z0-9-]*:\s/;
 const ASSISTED_LINE = /^Assisted-by:/i;
 const CO_AUTHOR_LINE = /^Co-authored-by:\s*(.*)$/i;
-const SCISSORS = /^# -+ >8 -+$/;
 
 /** The ticket key in a branch that follows the convention: feature/LCORE-210-x gives LCORE-210. */
 export function ticketFromBranch(branch: string, conv: Conventions = DEFAULT_CONVENTIONS): string | undefined {
@@ -72,15 +144,17 @@ const BARE_KEY = (conv: Conventions): RegExp =>
 
 export function prepareMessage(input: PrepareInput): PrepareResult {
   const notes: string[] = [];
-  if (LEAVE_SOURCES.has(input.source)) return { message: input.message, notes };
+  if (LEAVE_SOURCES.has(input.source) || input.replaying) return { message: input.message, notes };
+  const comment = input.comment || DEFAULT_COMMENT;
+  const scissors = scissorsLine(comment);
 
   const eol = input.message.includes('\r\n') ? '\r\n' : '\n';
   const lines = input.message.split(/\r?\n/);
   // Only the part git keeps is edited: comment lines and everything from the
   // scissors line down (git commit -v) stay exactly where they are.
-  const cut = lines.findIndex((l) => SCISSORS.test(l));
+  const cut = lines.findIndex((l) => scissors.test(l));
   const end = cut === -1 ? lines.length : cut;
-  const isContent = (i: number): boolean => i < end && !lines[i].startsWith('#');
+  const isContent = (i: number): boolean => i < end && !lines[i].startsWith(comment);
   const contentIdx = lines.map((_, i) => i).filter(isContent);
   const subjectIdx = contentIdx.find((i) => lines[i].trim() !== '');
   if (subjectIdx !== undefined && GIT_SUBJECT.test(lines[subjectIdx].trim())) return { message: input.message, notes };
@@ -133,12 +207,12 @@ export function prepareMessage(input: PrepareInput): PrepareResult {
   }
 
   // 3. The developer's Assisted-by default, when the message has none.
-  const keptEnd = lines.findIndex((l) => SCISSORS.test(l));
+  const keptEnd = lines.findIndex((l) => scissors.test(l));
   const hasAssisted = lines.some(
-    (l, i) => (keptEnd === -1 || i < keptEnd) && !l.startsWith('#') && ASSISTED_LINE.test(l.trim()),
+    (l, i) => (keptEnd === -1 || i < keptEnd) && !l.startsWith(comment) && ASSISTED_LINE.test(l.trim()),
   );
   if (defaultValue && !hasAssisted && converted.length === 0) {
-    addTrailer(lines, `${TRAILER}: ${defaultValue}`);
+    addTrailer(lines, `${TRAILER}: ${defaultValue}`, comment);
     notes.push(`added "${TRAILER}: ${defaultValue}"; delete it if no AI was used (git commit --amend)`);
   } else if (!assistedBy && !hasAssisted && converted.length === 0) {
     notes.push(
@@ -150,17 +224,18 @@ export function prepareMessage(input: PrepareInput): PrepareResult {
 }
 
 /** Appends a trailer to the message's trailer block, or starts one after a blank line. */
-function addTrailer(lines: string[], trailer: string): void {
-  const cut = lines.findIndex((l) => SCISSORS.test(l));
+function addTrailer(lines: string[], trailer: string, comment: string): void {
+  const scissors = scissorsLine(comment);
+  const cut = lines.findIndex((l) => scissors.test(l));
   const end = cut === -1 ? lines.length : cut;
   let last = -1;
-  for (let i = 0; i < end; i++) if (!lines[i].startsWith('#') && lines[i].trim() !== '') last = i;
+  for (let i = 0; i < end; i++) if (!lines[i].startsWith(comment) && lines[i].trim() !== '') last = i;
   if (last === -1) {
     lines.splice(0, 0, '', trailer);
     return;
   }
   let first = last;
-  while (first > 0 && !lines[first - 1].startsWith('#') && lines[first - 1].trim() !== '') first--;
+  while (first > 0 && !lines[first - 1].startsWith(comment) && lines[first - 1].trim() !== '') first--;
   const block = lines.slice(first, last + 1);
   const inTrailerBlock = first > 0 && block.every((l) => TRAILER_LINE.test(l.trim()));
   lines.splice(last + 1, 0, ...(inTrailerBlock ? [trailer] : ['', trailer]));
