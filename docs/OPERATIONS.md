@@ -2,7 +2,7 @@
 
 Issue #15. For the people who install qa across the organisation, release
 it, and keep it running. Developer setup is in [PRECOMMIT.md](PRECOMMIT.md);
-packaging details in [PACKAGE.md](PACKAGE.md); the pull request gate in
+packaging details in [PACKAGE.md](PACKAGE.md); the limits of local hooks in
 [ENFORCEMENT.md](ENFORCEMENT.md).
 
 ## Production installation
@@ -34,9 +34,8 @@ mirror cannot substitute files.
 **Per repository.** Nothing for the hooks: `qa setup` connects them in every
 clone on the machine, and they use the default configuration that ships with
 qa unless the repository has a `.pre-commit-config.yaml` of its own (copy
-`templates/pre-commit-config.yaml` only to change what runs there). Copy
-`templates/qa-pr-caller.yml` (pull request gate, where the organisation ruleset
-does not already require it), add the repository to
+`templates/pre-commit-config.yaml` only to change what runs there). Add the
+repository to
 `registry/repositories.yaml` with `enabled: true` through a pull request, and
 release qa (the allowlist ships inside the package).
 
@@ -85,21 +84,15 @@ refused to run (treat as a failure, never as a pass).
   as-of date, profiles (tags, stages, enabled checks and their modes), every
   check's status, duration, mode, tool version and cached files, failed
   validations, summary counts, host. SARIF 2.1.0 carries the findings.
-- **Centralised.** The pull request gate uploads SARIF to GitHub code
-  scanning (organisation-wide in Security overview, category
-  `ledgerlink-qa`) and keeps `evidence.json` as the `qa-evidence` artifact for
-  90 days; its job summary lists every check. With `report-url` (workflow
-  input) or `QA_REPORT_URL`, evidence is also POSTed to a collector.
+- **Centralised.** With `QA_REPORT_URL`, evidence is also POSTed to a
+  collector.
 
 ## Releasing
 
 1. In a pull request to `dev`: bump `version` in both `package.json` files,
    add a `## <version>` section to `CHANGELOG.md`, and update the pins that
-   name the version: `qa --require` in `templates/pre-commit-config.yaml`,
-   `qa-version` and the `@v<version>` in `templates/qa-pr-caller.yml`, the
-   defaults in `.github/workflows/qa-pr.yml`, and the tag in
-   `config/github/org-ruleset-qa.json`. `node scripts/release.js --check`
-   (run by CI) fails until every one agrees.
+   name the version: `qa --require` in `templates/pre-commit-config.yaml`.
+   `node scripts/release.js --check` (run by CI) fails until they agree.
 2. Merge `dev` into `main` (the only allowed source for `main`). CI runs on
    Linux, macOS and Windows and builds the package.
 3. `release.yml` then, when the version is not tagged yet: checks the
@@ -107,8 +100,7 @@ refused to run (treat as a failure, never as a pass).
    commit `v<version>` and publishes the GitHub release with the changelog
    section, install and verification commands. A failed release is retried
    with "Re-run jobs".
-4. Roll out: update the organisation ruleset's `ref` (Option A) or each
-   repository's stub (Option B), and announce the `npm install` command.
+4. Roll out: announce the `npm install` command.
 
 Version rules: semantic versioning; below 1.0 a minor version is breaking
 (`--require 0.2.3` accepts 0.2.x from 0.2.3, never 0.3.0). A configuration
@@ -122,7 +114,6 @@ version, not reverting history:
 
 | Where                      | Roll back by                                                                                                                   |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Pull request gate          | Organisation ruleset `ref` to the earlier tag (Option A), or `qa-version` / `@v<version>` in the stub (Option B)               |
 | Developer machines         | Install the earlier release (same commands as above); `qa version` confirms                                                    |
 | Hooks in a repository      | Set `qa --require` back in `.pre-commit-config.yaml` (within the same 0.x line, an older `--require` accepts the newer qa too) |
 | A single misbehaving check | In `policy.yaml`, set the check to `mode: report` (or `off`) and release: no engine change needed                              |

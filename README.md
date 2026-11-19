@@ -37,14 +37,14 @@ Tests: 69 pass. Conformance: 16 of 16 fixtures pass.
 
 ## Production use (issue #15)
 
-| Topic                                              | Document                                   |
-| -------------------------------------------------- | ------------------------------------------ |
-| Install, configure, release, roll back, maintain   | [docs/OPERATIONS.md](docs/OPERATIONS.md)   |
-| Pull request gate, rulesets, limits of local hooks | [docs/ENFORCEMENT.md](docs/ENFORCEMENT.md) |
-| Security review, threat model, residual risks      | [docs/SECURITY.md](docs/SECURITY.md)       |
-| Benchmarks                                         | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) |
-| Test suites                                        | [docs/TESTING.md](docs/TESTING.md)         |
-| Release notes                                      | [CHANGELOG.md](CHANGELOG.md)               |
+| Topic                                            | Document                                   |
+| ------------------------------------------------ | ------------------------------------------ |
+| Install, configure, release, roll back, maintain | [docs/OPERATIONS.md](docs/OPERATIONS.md)   |
+| Limits of local hooks; pull requests             | [docs/ENFORCEMENT.md](docs/ENFORCEMENT.md) |
+| Security review, threat model, residual risks    | [docs/SECURITY.md](docs/SECURITY.md)       |
+| Benchmarks                                       | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) |
+| Test suites                                      | [docs/TESTING.md](docs/TESTING.md)         |
+| Release notes                                    | [CHANGELOG.md](CHANGELOG.md)               |
 
 ## Use
 

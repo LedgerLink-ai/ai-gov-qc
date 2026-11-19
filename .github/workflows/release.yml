@@ -70,8 +70,8 @@ jobs:
           cd out
           sha256sum -c "ledgerlink-qa-$VERSION.tgz.sha256"
       # Build provenance: a signed statement that this exact file was built by
-      # this repository's workflows from HEAD_SHA. Installers and the qa-pr
-      # workflow verify it with "gh attestation verify".
+      # this repository's workflows from HEAD_SHA. Installers verify it with
+      # "gh attestation verify".
       - name: attest build provenance
         if: steps.version.outputs.release == 'true'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
