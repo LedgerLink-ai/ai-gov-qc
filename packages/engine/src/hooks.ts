@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import type { HookResult } from './report';
 import { isWindows, qaHome, toolBinary } from './tools-home';
 
 // Machine-wide hooks (AIQC-85). "qa setup" writes one small script per git
@@ -216,7 +217,91 @@ export interface HookDeps {
   warn: (message: string) => void;
   cwd?: string;
   stdin?: () => Buffer;
+  /** How to print (default: hookOutputMode()). */
+  output?: HookOutput;
+  /** Where the hook's own lines go (default: stdout, which git passes on). */
+  write?: (text: string) => void;
 }
+
+/**
+ * How a hook prints (AIQC-88). In a terminal, output streams as the checks run
+ * and the summary comes last, where the eye lands. An IDE's git (VS Code's
+ * commit button) shows only the FIRST line of git's output in its pop-up, and
+ * with pre-commit that is the first hook's "Passed": there the output is
+ * collected and the summary goes first. QA_HOOK_OUTPUT=stream|buffer overrides.
+ */
+export type HookOutput = 'stream' | 'buffer';
+
+export function hookOutputMode(
+  env: NodeJS.ProcessEnv = process.env,
+  tty: boolean = Boolean(process.stdout.isTTY || process.stderr.isTTY),
+): HookOutput {
+  const forced = env.QA_HOOK_OUTPUT?.trim().toLowerCase();
+  if (forced === 'stream' || forced === 'buffer') return forced;
+  return tty ? 'stream' : 'buffer';
+}
+
+/** What a stopped hook did, in the words of its summary line. */
+const STOPPED: Record<QaHook, string> = {
+  'pre-commit': 'commit blocked',
+  'prepare-commit-msg': 'commit message not prepared',
+  'commit-msg': 'commit message refused',
+  'pre-push': 'push blocked',
+};
+
+/** The hooks pre-commit reports as Failed, by name ("eslint (repository version)........Failed"). */
+export function failedHookNames(output: string): string[] {
+  const names: string[] = [];
+  for (const raw of output.split(/\r?\n/)) {
+    // eslint-disable-next-line no-control-regex
+    const m = /^(.+?)\.{3,}(?:\([^)]*\))?Failed\s*$/.exec(raw.replace(/\u001b\[[0-9;]*m/g, ''));
+    if (m) names.push(m[1].trim());
+  }
+  return names;
+}
+
+/**
+ * What stopped the hook, by name, from pre-commit's output: the hooks it
+ * reports as Failed, else pre-commit itself when it crashed before running any
+ * ("An unexpected error has occurred: CalledProcessError: ..." while setting up
+ * a hook's environment).
+ */
+export function whatFailed(output: string): string[] {
+  const names = failedHookNames(output);
+  if (names.length > 0) return names;
+  const crash = /An unexpected error has occurred: (\w+)/.exec(output);
+  return crash ? [`pre-commit itself, which stopped with ${crash[1]}`] : [];
+}
+
+/**
+ * The one line that says why a commit or push stopped: the first blocking
+ * finding (what, and where), else the check that could not run, else the
+ * hooks that failed.
+ */
+export function hookSummary(hook: QaHook, result: HookResult | undefined, failed: string[], mode: HookOutput): string {
+  const verb = STOPPED[hook];
+  const tail = mode === 'buffer' ? 'Full details are in the git output.' : 'Details above.';
+  const plain = (s: string): string => s.replace(/[.\s]+$/, '').replace(/^\p{Lu}(?!\p{Lu})/u, (c) => c.toLowerCase());
+  const first = result?.blocking[0];
+  if (first) {
+    const where = first.path ? ` in ${first.path}${first.line ? ` line ${first.line}` : ''}` : '';
+    const more = result.blocking.length > 1 ? ` (and ${result.blocking.length - 1} more)` : '';
+    return `qa: ${verb}: ${plain(first.summary)}${where}${more}. ${tail}`;
+  }
+  const error = result?.errors[0];
+  if (error) return `qa: ${verb}: ${error.check} could not run (${plain(error.summary)}). ${tail}`;
+  if (failed.length > 0) return `qa: ${verb} by ${failed.join(', ')}. ${tail}`;
+  return `qa: ${verb}. ${tail}`;
+}
+
+const readHookResult = (file: string | undefined): HookResult | undefined => {
+  if (!file) return undefined;
+  try {
+    return JSON.parse(readFileSync(file, 'utf8')) as HookResult;
+  } catch {
+    return undefined;
+  }
+};
 
 const gitText = (cwd: string, args: string[]): string | undefined => {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true });
@@ -262,20 +347,52 @@ export function runHook(hook: string, args: string[], deps: HookDeps): number {
   const ownExists = own !== undefined && !gitRanOwn && existsSync(own);
   const ownIsPreCommit = ownExists && readFileSync(own, 'utf8').includes(PRE_COMMIT_SCRIPT);
 
+  const mode = deps.output ?? hookOutputMode();
+  const write =
+    deps.write ??
+    ((text: string): void => {
+      process.stdout.write(text);
+    });
+  // In buffer mode a child's output is collected here, to print after the summary.
+  let collected = '';
+  const spawnChild = (command: string, commandArgs: string[], spawnCwd: string, env: NodeJS.ProcessEnv) => {
+    const out = mode === 'buffer' ? 'pipe' : 'inherit';
+    const res = spawnSync(command, commandArgs, {
+      cwd: spawnCwd,
+      input,
+      env,
+      stdio: [input ? 'pipe' : 'inherit', out, out],
+      // A whole test suite's output, collected for an IDE; never cut short.
+      maxBuffer: 512 * 1024 * 1024,
+      windowsHide: true,
+    });
+    if (mode === 'buffer') collected += `${res.stdout?.toString() ?? ''}${res.stderr?.toString() ?? ''}`;
+    return res;
+  };
+  // A stopped hook: in an IDE the summary leads (its pop-up shows only the first
+  // line) and is repeated at the end; in a terminal it comes last.
+  const finish = (status: number, result: HookResult | undefined, failed: string[]): number => {
+    if (status === 0) {
+      if (collected) write(collected);
+      return 0;
+    }
+    const line = hookSummary(hook as QaHook, result, failed, mode);
+    if (mode === 'buffer')
+      write(`${line}\n\n${collected}${collected === '' || collected.endsWith('\n') ? '' : '\n'}${line}\n`);
+    else write(`\n${line}\n`);
+    return status;
+  };
+  const ownName = `this repository's own ${hook} hook`;
+
   const runOwn = (): number => {
     if (!own || !ownExists) return 0;
-    const options = {
-      cwd,
-      input,
-      stdio: [input ? 'pipe' : 'inherit', 'inherit', 'inherit'] as ['pipe' | 'inherit', 'inherit', 'inherit'],
-      env: { ...process.env, [ACTIVE_ENV]: active },
-    };
+    const env = { ...process.env, [ACTIVE_ENV]: active };
     // Node cannot start a shebang script on Windows. Git for Windows puts its sh
     // on the hook's PATH, and sh's exec follows the #! line as git does, so a
     // hook in Python or Node runs with its own interpreter.
     const res = isWindows
-      ? spawnSync('sh', ['-c', 'exec "$0" "$@"', posix(own), ...args], options)
-      : spawnSync(own, args, options);
+      ? spawnChild('sh', ['-c', 'exec "$0" "$@"', posix(own), ...args], cwd, env)
+      : spawnChild(own, args, cwd, env);
     if (res.error) {
       deps.warn(`could not run ${own} (${res.error.message}); skipped`);
       return 0;
@@ -284,15 +401,15 @@ export function runHook(hook: string, args: string[], deps: HookDeps): number {
   };
 
   const top = gitText(cwd, ['rev-parse', '--show-toplevel']);
-  if (!top) return runOwn(); // a bare repository: nothing to check
+  if (!top) return finish(runOwn(), undefined, [ownName]); // a bare repository: nothing to check
   const decision = deps.gateExit(GATE_COMMAND[hook as QaHook], top);
-  if (decision !== undefined) return decision === 0 ? runOwn() : decision;
+  if (decision !== undefined) return decision === 0 ? finish(runOwn(), undefined, [ownName]) : decision;
 
   // An opted-in repository. pre-commit's own scripts would run the same
   // checks a second time, so only other hooks (Git LFS and the like) run first.
   if (!ownIsPreCommit) {
     const status = runOwn();
-    if (status !== 0) return status;
+    if (status !== 0) return finish(status, undefined, [ownName]);
   }
   // The repository's own configuration wins; without one, the default that ships with qa.
   let config: string;
@@ -301,10 +418,14 @@ export function runHook(hook: string, args: string[], deps: HookDeps): number {
     config = existsSync(repoConfig) ? repoConfig : stageDefaultConfig(resolve(cwd, common as string));
   } catch (err) {
     deps.warn(`${(err as Error).message}; the checks were skipped. Reinstall qa.`);
-    return 0;
+    return finish(0, undefined, []);
   }
+  // Each qa run in this hook adds its blocking findings here (report.ts), for the summary line.
+  const gitDir = gitText(cwd, ['rev-parse', '--git-dir']);
+  const resultFile = gitDir ? join(resolve(cwd, gitDir), 'ledgerlink-qa', `last-${hook}.json`) : undefined;
+  if (resultFile) rmSync(resultFile, { force: true });
   const preCommit = toolBinary('pre-commit');
-  const res = spawnSync(
+  const res = spawnChild(
     preCommit,
     [
       'hook-impl',
@@ -317,13 +438,19 @@ export function runHook(hook: string, args: string[], deps: HookDeps): number {
       '--',
       ...args,
     ],
-    { cwd: top, input, stdio: [input ? 'pipe' : 'inherit', 'inherit', 'inherit'], windowsHide: true },
+    top,
+    { ...process.env, ...(resultFile ? { QA_HOOK_RESULT: resultFile } : {}) },
   );
   if (res.error) {
+    const missing = (res.error as NodeJS.ErrnoException).code === 'ENOENT';
     deps.warn(
-      `pre-commit was not found (${preCommit}), so the checks were skipped here; CI runs them. Run "qa setup".`,
+      missing
+        ? `pre-commit was not found (${preCommit}), so the checks were skipped here; CI runs them. Run "qa setup".`
+        : `pre-commit could not run (${res.error.message}), so the checks were skipped here.`,
     );
-    return 0;
+    return finish(0, undefined, []);
   }
-  return res.status ?? 1;
+  const result = readHookResult(resultFile);
+  if (resultFile) rmSync(resultFile, { force: true });
+  return finish(res.status ?? 1, result, whatFailed(collected));
 }
