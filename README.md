@@ -4,36 +4,21 @@ LedgerLink QA harness: the governance registries and the `qa` check engine. The 
 
 Design: `LedgerLink QA Harness Technical Design` V2.2. Build order: `qa-harness-guide/IMPLEMENTATION_PLAN.md`.
 
-> **Hosted for now at [bhushan-ht/ledgerlink-qa](https://github.com/bhushan-ht/ledgerlink-qa).** It moves to the LedgerLink-ai organisation once LedgerLink provides organisation-owner action (client request 1.1).
+Repository: [LedgerLink-ai/ai-gov-qc](https://github.com/LedgerLink-ai/ai-gov-qc). Releases are published there by `release.yml`; the pull request gate other repositories call is `.github/workflows/qa-pr.yml`.
 
-## Status (2 Nov 2026)
+## Status (19 Nov 2026)
 
-**Local checks on the developer's machine** (AI Code Review implementation, section 2): done, in three checkpoints: pre-commit (with prepare-commit-msg, which pre-fills the message), pre-push, and pre-PR (`pre-commit run --hook-stage manual --all-files`). Installed from one package that works on Windows, macOS and Linux: `npm install -g` the `.tgz`, then `qa setup` for pre-commit, Semgrep and Gitleaks ([docs/PACKAGE.md](docs/PACKAGE.md)). Setup and manual testing in [docs/PRECOMMIT.md](docs/PRECOMMIT.md). Added since 22 Oct:
+**Local checks on the developer's machine** (AI Code Review implementation, section 2): done, in three checkpoints: pre-commit (with prepare-commit-msg, which pre-fills the message, and commit-msg, which checks it), pre-push, and pre-PR (`qa prepr`). Installed from one package that works on Windows, macOS and Linux: `npm install -g` the `.tgz`, then `qa setup` for pre-commit, Semgrep and Gitleaks ([docs/PACKAGE.md](docs/PACKAGE.md)). Setup and manual testing in [docs/PRECOMMIT.md](docs/PRECOMMIT.md).
 
-- `.pre-commit-hooks.yaml` and `templates/pre-commit-config.yaml`
-- Gitleaks rules for blockchain private keys and BIP39 mnemonics
-- `qa prepare-commit-msg`: `<type>(<TICKET-123>): ` from the branch, Assisted-by default, AI Co-authored-by converted
-- the `Assisted-by: <tool>, <model>, <version>` format
-- `sast.semgrep` at pre-push
-- `qa prepush` and `qa doctor`
-- `qa prepr` with the pull request checks `pr.branch-name`, `pr.commits`, `pr.diff-size` and `tests.coverage`
-- ticket-based branch names and commit messages (AIQC-87): `branch.ticket` (pre-commit), `commit.message` (the new commit-msg hook, `qa commit-msg`) and `pr.commit-messages` require `<type>/<TICKET-123>-<description>` branches and `<type>(<TICKET-123>): <description>` subjects, the key taken from the branch; report only until a blocking date is agreed ([docs/BRANCH-AND-COMMIT-CONVENTIONS.md](docs/BRANCH-AND-COMMIT-CONVENTIONS.md))
-- the `repo-script` and `repo-tool` hooks for each repository's tests, type check and build
-- the hook sandbox
-- the `@ledgerlink/qa` package (`npm run package`), `qa setup`, `qa --require <version>`, and the `ci` and `release` workflows (the first automatic release was v0.2.2, on 3 Nov)
-
-Tests: 69 pass. Conformance: 16 of 16 fixtures pass.
-
-### Engine status (22 Oct 2026, step 1 of the plan)
-
-| Piece                                                                                                                                                                                                               | State                                                                     |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Registries and JSON schemas (`registry/`, `path-tags.yaml`, `checks.yaml`, `policy.yaml`, `exemptions.yaml`, `schemas/`)                                                                                            | Done; validated at load time and in tests                                 |
-| Engine core: CLI, changed-file selection (staged / merge-base / files / all), path tags, policy modes with switch-on dates, baseline, exemptions, SARIF 2.1.0, `evidence.json`, exit codes 0/1/2, fail closed in CI | Done                                                                      |
-| Checks: `ai-config.content-lint` (C14-4), `ai-config.mcp-allowlist` (C14-6), `paths.protected` (C15-4), `commit.trailer` (C11-2)                                                                                    | Done                                                                      |
-| Check: `secrets.gitleaks`                                                                                                                                                                                           | Adapter done; not yet run here because Gitleaks is not installed (week 2) |
-| Conformance fixtures and `qa conform` (API path and CLI path)                                                                                                                                                       | 9 pass, 1 skipped (needs Gitleaks), 1 pending (BIP39 rule, week 2)        |
-| Git hooks installer, `qa commit-metadata`, MCP server, `qa init`, OKF bundle, gate                                                                                                                                  | Not started (weeks 2 to 6)                                                |
+| Piece                                                                                                                                                                                                               | State                                                                                                         |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Registries and JSON schemas (`registry/`, `path-tags.yaml`, `checks.yaml`, `policy.yaml`, `exemptions.yaml`, `schemas/`)                                                                                            | Done; validated at load time and in tests                                                                     |
+| Engine core: CLI, changed-file selection (staged / merge-base / files / all), path tags, policy modes with switch-on dates, baseline, exemptions, SARIF 2.1.0, `evidence.json`, exit codes 0/1/2, fail closed in CI | Done                                                                                                          |
+| Checks (`checks.yaml`): secrets (Gitleaks), AI configuration, protected paths, trailers, branch and commit conventions, Semgrep, pull request rules, coverage                                                       | Done; Gitleaks and Semgrep run wherever `qa setup` installed them, and always in CI                           |
+| Conformance fixtures and `qa conform` (API and CLI paths, loose folders and git repositories with renames, deletions and pull requests)                                                                             | Every fixture runs in CI (`qa conform --require-all`); see [docs/TESTING.md](docs/TESTING.md)                 |
+| Git hooks (`qa setup`, global `core.hooksPath`), execution gate, package and automatic releases with provenance                                                                                                     | Done (first automatic release v0.2.2, 3 Nov)                                                                  |
+| Pull request gate (`qa-pr.yml`, caller template, rulesets in `config/github/`)                                                                                                                                      | Built; mandatory once an organisation owner applies the rulesets ([docs/ENFORCEMENT.md](docs/ENFORCEMENT.md)) |
+| MCP server, `qa init`, OKF bundle                                                                                                                                                                                   | Not started                                                                                                   |
 
 ## Production use (issue #15)
 
@@ -77,7 +62,7 @@ Exit codes: `0` pass, `1` blocking findings, `2` the engine could not run. Calle
 4. **Mode.** In `policy.yaml`, a check reports until its `block_from` date and blocks from then (P9). Override the date with `--as-of`.
 5. **Blocking.** A finding blocks only when it is error level, its check is in block mode, and it is neither in `.qa/baseline.sarif` nor covered by an unexpired exemption.
 6. **Fail closed.** In CI, a check that cannot run (for example, a missing scanner) is an engine error, exit 2. Locally it is skipped with "runs in CI", and the pipeline re-runs everything anyway.
-7. **Actor.** `paths.protected` blocks agents (`--actor agent`, or `QA_ACTOR=agent`) and only notes the path for humans, who need code-owner review instead.
+7. **Actor.** `paths.protected` blocks agents (`--actor agent`, or `QA_ACTOR=agent`) and only notes the path for humans, who need code-owner review instead. In the pull request gate the agent rules apply when the author is a registered agent, or when any commit of the pull request declares AI assistance (`Assisted-by`, or an AI `Co-authored-by`).
 
 Findings are plain text with a fix hint and the control and rule IDs from `repo-docs/capabilities`. They never contain secret values and are never phrased as instructions to an agent.
 
