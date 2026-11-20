@@ -116,6 +116,9 @@ tags:
         - '**/.mcp.json'
         - '**/.vscode/mcp.json'
         - '.vscode/settings.json'
+        - 'opencode.json'
+        - 'opencode.jsonc'
+        - '.opencode/**'
         - '.gitignore'
 
   ci-config:

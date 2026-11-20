@@ -95,9 +95,9 @@ Exactly three comma-separated parts, none empty: the tool, the model, and a vers
 |                                                  | `Assisted-by: Cursor, gpt-5, 1.7.0, chat` | Four parts                |
 
 - The version is digits separated by dots, optionally with a leading `v` and a suffix such as `-beta.1`.
-- Use the tool's name as it appears in [registry/ai-registry.yaml](../registry/ai-registry.yaml): Claude Code, Cursor, GitHub Copilot, OpenAI Codex. Only the form is checked on a commit.
+- Use the tool's name as it appears in [registry/ai-registry.yaml](../registry/ai-registry.yaml) (the registry is the source of truth, not this list — it also covers Windsurf, Gemini CLI, Roo Code, Amazon Q Developer, Cline and opencode). Only the form is checked on a commit.
 - One commit may carry several `Assisted-by` lines when several tools were used.
-- `Co-authored-by` lines that AI tools add (Cursor, Claude Code, Copilot, Codex) are not a declaration. The hook converts them to `Assisted-by`; fill in the model and version if it asks you to.
+- `Co-authored-by` lines an AI tool adds are not a declaration by themselves. The hook converts a line matching a `trailer_aliases` entry in the registry to `Assisted-by`; fill in the model and version if it asks you to.
 
 ### Declaring AI use
 
@@ -185,7 +185,7 @@ Suppressions inside the repository are ignored: `gitleaks:allow` and `nosemgrep`
 
 ### AI instruction files
 
-The files AI tools read as instructions must be plain visible text. They are the files tagged `ai-config` in [path-tags.yaml](../path-tags.yaml): `AGENTS.md` (and `AGENTS.override.md`), `CLAUDE.md` (and `CLAUDE.local.md`), `GEMINI.md`, `context/**`, `.claude/**`, `.cursor/**`, `.cursorrules`, `.windsurfrules`, `.windsurf/**`, `.clinerules`, `.roo/**`, `.gemini/**`, `.codex/**`, `.amazonq/**`, `.github/copilot-instructions.md`, `.github/instructions/**`, `.github/chatmodes/**`, `.github/agents/**`, `.github/prompts/**`, `**/*.prompt.md`, `.mcp.json`, `.vscode/mcp.json` and `.vscode/settings.json`. Every `README.md` is checked too.
+The files AI tools read as instructions must be plain visible text. They are the files tagged `ai-config` in [path-tags.yaml](../path-tags.yaml): `AGENTS.md` (and `AGENTS.override.md`), `CLAUDE.md` (and `CLAUDE.local.md`), `GEMINI.md`, `context/**`, `.claude/**`, `.cursor/**`, `.cursorrules`, `.windsurfrules`, `.windsurf/**`, `.clinerules`, `.roo/**`, `.gemini/**`, `.codex/**`, `.amazonq/**`, `opencode.json` (and `.opencode/**`), `.github/copilot-instructions.md`, `.github/instructions/**`, `.github/chatmodes/**`, `.github/agents/**`, `.github/prompts/**`, `**/*.prompt.md`, `.mcp.json`, `.vscode/mcp.json` and `.vscode/settings.json`. Every `README.md` is checked too. Adding a new tool only needs a new path in `path-tags.yaml` and, if it uses MCP, nothing else: the MCP check below matches by shape, not by tool name.
 
 - no hidden characters: zero-width and other invisible characters, bidirectional controls and marks, Unicode tag characters, variation selectors (one after an emoji is fine), soft hyphens, line and paragraph separators;
 - no text telling agents to weaken a control: to commit without the hooks (in any of its forms), to switch off or get round tests, lint, checks, hooks, scans or reviews, to disregard findings or warnings, or to disregard their earlier instructions. The exact phrases are in `packages/engine/src/checks/content-lint.ts`;
@@ -195,11 +195,12 @@ A clause that forbids the action is fine, for example "Never, under any circumst
 
 ### MCP servers
 
-An MCP server in the repository's MCP configuration (`.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json` at any depth, `.vscode/settings.json`, `.gemini/settings.json`, `.roo/mcp.json`, `.amazonq/mcp.json`, `.codex/config.toml`; under `mcpServers`, `servers` or `mcp.servers`) must be listed as `approved` in [registry/ai-registry.yaml](../registry/ai-registry.yaml) and run at an exact approved version: `npx -y @ledgerlink/qa-mcp@0.1.0`, not `npx @ledgerlink/qa-mcp` or `@latest`. URL servers and local commands must be registered too.
+An MCP server in any JSON (or JSONC) file under an `ai-config`-tagged path — not a fixed list of filenames, so a new or unlisted tool's configuration is covered as soon as its path is tagged — under `mcpServers`, `servers` or `mcp.servers`, plus `.codex/config.toml`'s `[mcp_servers]` tables, must be listed as `approved` in [registry/ai-registry.yaml](../registry/ai-registry.yaml) and run at an exact approved version: `npx -y @ledgerlink/qa-mcp@0.1.0`, not `npx @ledgerlink/qa-mcp` or `@latest`. URL servers (including Gemini's `httpUrl` and Windsurf's `serverUrl`) and local commands must be registered too.
 
 - Before the package, a runner (`npx`, `pnpm dlx` and the like) may only have `-y`, `--yes`, `--quiet` or `--silent`.
-- An `env` entry may not change where packages come from or what the runtime loads (`npm_config_*`, any name containing `REGISTRY`, `NODE_OPTIONS`, `NODE_PATH`, `PIP_INDEX_URL`, `PYTHONPATH`, `LD_PRELOAD` and similar).
+- An `env` entry may not change where packages come from or what the runtime loads (`npm_config_*`, any name containing `REGISTRY`, `NODE_OPTIONS`, `NODE_PATH`, `PIP_INDEX_URL`, `PYTHONPATH`, `LD_PRELOAD`, `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` and similar).
 - A configuration file that is not valid JSON (or TOML for Codex) is reported, because its servers cannot be checked.
+- An entry still `pending-inventory` once its `review_by` date has passed is treated as not approved, instead of staying a warning indefinitely.
 
 To use a new server, propose it in the registry with an owner and a review date (R14-6). Personal MCP settings outside the repository are not checked.
 

@@ -542,9 +542,19 @@ export async function setup(config: Config, opts: SetupOptions, print: (s: strin
 
   const pythonOk = opts.python ? setupPython(config, pins, row) : true;
   if (opts.gitleaks && pins.gitleaks) await setupGitleaks(config, pins.gitleaks, opts, row);
-  if (opts.globalHooks ?? true) setupGlobalHooks(row);
-  else if (opts.gitTemplate && pythonOk) setupGitTemplate(row);
+  const problemsBeforeHooks = problems;
+  let hooksInstalled = false;
+  if (opts.globalHooks ?? true) {
+    setupGlobalHooks(row);
+    hooksInstalled = true;
+  } else if (opts.gitTemplate && pythonOk) setupGitTemplate(row);
   pathAdvice(row);
+  if (problemsBeforeHooks > 0 && hooksInstalled) {
+    print(
+      '  WARN  hooks          installed anyway, but commits on this machine will NOT be scanned locally until' +
+        ' the problem(s) above are fixed; pushes still go through CI.',
+    );
+  }
   print(
     problems > 0 ? `result: NOT DONE (${problems} problem(s))` : 'result: DONE. Check a repository with: qa doctor',
   );

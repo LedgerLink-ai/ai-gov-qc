@@ -25,6 +25,8 @@ export interface McpServerEntry {
   id: string;
   status: RegistryStatus;
   owner: string;
+  /** Once past, a `pending-inventory` entry is treated as `not-approved` instead of staying a warning forever. */
+  review_by?: string;
   match: { package?: string; versions?: string[]; url?: string; command?: string };
 }
 

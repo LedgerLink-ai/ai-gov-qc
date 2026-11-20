@@ -23,9 +23,18 @@ import { messageLines } from './commit-trailer';
 // The key is read from the branch, never trusted from the message.
 
 const MAX_QUOTED = 120;
-/** Subjects git writes itself: merges, fixups, reverts. */
+/**
+ * Subjects git writes itself: merges and reverts. Matched against git's
+ * actual generated shape in full, not just a prefix, so a hand-typed
+ * subject ("Merge branch 'main': actually add a backdoor") cannot borrow
+ * the exemption for an ordinary commit.
+ */
 const GIT_SUBJECT =
-  /^(?:Merge (?:branch|remote-tracking branch|pull request|tag|commit) |(?:fixup|squash|amend)! |Revert ")/;
+  /^(?:Merge branch '.*?'(?: into .*)?|Merge pull request #\d+ from \S+|Merge (?:remote-tracking branch|tag|commit) '.*?'(?: into .*)?)$/;
+/** Rebase-autosquash markers: never meant to survive to final history. */
+const AUTOSQUASH_SUBJECT = /^(?:fixup|squash|amend)! /;
+/** git revert always appends this trailer; a hand-typed "Revert "..."" without it is not a real revert. */
+const REVERT_TRAILER = /^This reverts commit [0-9a-f]{40}\.$/m;
 
 const quote = (s: string): string => {
   const one = s.replace(/\s+/g, ' ').trim();
@@ -78,7 +87,9 @@ export function checkCommitMessage(
   branch?: BranchAnalysis,
 ): Finding[] {
   const subject = messageLines(message).find((l) => l !== '');
-  if (subject === undefined || GIT_SUBJECT.test(subject)) return [];
+  if (subject === undefined) return [];
+  const isRealRevert = subject.startsWith('Revert "') && REVERT_TRAILER.test(message);
+  if (GIT_SUBJECT.test(subject) || AUTOSQUASH_SUBJECT.test(subject) || isRealRevert) return [];
   const valid = branch?.ok ? branch : undefined;
   const expected = valid ? `${subjectPrefix(conv, valid.commitType, valid.ticket)}<description>` : subjectForm(conv);
   const finding = (ruleId: string, text: string, fixHint: string): Finding => ({

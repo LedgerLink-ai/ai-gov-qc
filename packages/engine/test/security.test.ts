@@ -96,6 +96,15 @@ describe('command injection', () => {
     for (const bad of ['%PATH%', '!x!', 'a"b', 'a\nb'])
       expect(() => windowsCommandLine(['npm', bad])).toThrow(/cmd.exe/);
   });
+
+  it('doubles a trailing backslash so a quoted path is not read past its closing quote', () => {
+    // Without doubling, `"C:\repo dir\"` reads as an escaped literal quote,
+    // not the argument's end, and the next argument gets swallowed into it.
+    expect(windowsCommandLine(['npm', '--cwd', 'C:\\repo dir\\', 'test'])).toBe(
+      'npm --cwd "C:\\repo dir\\\\" test',
+    );
+    expect(windowsCommandLine(['npm', 'a b\\\\'])).toBe('npm "a b\\\\\\\\"');
+  });
 });
 
 describe('downloads and reporting endpoints', () => {

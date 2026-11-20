@@ -280,6 +280,34 @@ Docs
   the pinned verify command, release immutability, what `qa setup` writes,
   fixtures, and the open point on a maximum exemption lifetime.
 
+### Wider AI-harness coverage, and fixes from a market-readiness review
+
+- `ai-config.mcp-allowlist` no longer matches MCP configuration by a fixed
+  list of filenames (it missed Windsurf's `serverUrl` servers entirely).
+  Any JSON/JSONC file under an `ai-config`-tagged path is checked, so a new
+  or unlisted tool is covered as soon as its path is added to
+  `path-tags.yaml` — no engine change needed.
+- `registry/ai-registry.yaml` now also lists Windsurf, Gemini CLI, Roo Code,
+  Amazon Q Developer, Cline and opencode, and `path-tags.yaml` tags
+  `opencode.json`/`.opencode/**` as `ai-config`. Their `trailer_aliases`
+  are left unset pending confirmation of each tool's actual
+  `Co-authored-by` convention.
+- An MCP server entry still `pending-inventory` past its `review_by` date
+  is now treated as not approved, instead of staying a warning forever.
+- `commit.message`/`pr.commit-messages` no longer exempt a hand-typed
+  subject that merely starts with `Merge branch `-type text or `Revert "`:
+  a merge subject must match git's generated shape in full, and a revert
+  must carry the `This reverts commit <sha>.` trailer `git revert` writes.
+- An MCP server's `env` may no longer set `HTTP_PROXY`, `HTTPS_PROXY`,
+  `ALL_PROXY` or `NO_PROXY` (R14-6).
+- `qa setup` on Windows: an argument ending in a backslash (a directory
+  path) that needed quoting is now escaped correctly, instead of risking
+  the following argument being swallowed into it.
+- `qa setup`: when a global hook install proceeds despite an earlier `FAIL`
+  (gitleaks or the Python tools), the summary now says commits will not be
+  scanned locally until that is fixed, rather than only showing it in the
+  per-tool rows above.
+
 ## 0.2.3
 
 Upgrading from 0.2.2

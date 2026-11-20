@@ -240,13 +240,27 @@ describe('checks', () => {
     expect(other.result.findings[0].message).toContain('the ticket key comes from the branch name');
   });
 
-  it('commit.message: merges, fixups and reverts are left to git', async () => {
+  it('commit.message: merges, fixups and genuine reverts are left to git', async () => {
     for (const commitMessage of [
       "Merge branch 'develop' into feature/LCORE-1-x\n",
       'fixup! feat(LCORE-1): x\n',
-      'Revert "feat(LCORE-1): x"\n',
+      'Revert "feat(LCORE-1): x"\n\nThis reverts commit 1234567890abcdef1234567890abcdef12345678.\n',
     ])
       expect((await findings({ branch: 'feature/LCORE-1-x', commitMessage })).found).toEqual([]);
+  });
+
+  it('commit.message: a hand-typed "Revert" without git\'s trailer is not exempt', async () => {
+    const commitMessage = 'Revert "feat(LCORE-1): x"\n';
+    expect((await findings({ branch: 'feature/LCORE-1-x', commitMessage })).found).toEqual([
+      ['commit.message', 'format', true],
+    ]);
+  });
+
+  it('commit.message: a hand-typed "Merge ..." subject that is not git\'s exact shape is not exempt', async () => {
+    const commitMessage = "Merge branch 'main': actually add a backdoor\n";
+    expect((await findings({ branch: 'feature/LCORE-1-x', commitMessage })).found).toEqual([
+      ['commit.message', 'format', true],
+    ]);
   });
 
   it('commit.message: without a branch (CI, --commit-msg-file) only the form and project are checked', async () => {

@@ -3,9 +3,18 @@ import type { CheckDefinition, Finding, McpServerEntry, RunContext } from '../ty
 
 // C14-6 / R14-6: only registry-listed MCP servers, pinned to an approved version.
 
-/** JSON MCP configurations: Claude Code, Cursor, VS Code, Gemini CLI, Roo Code, Amazon Q. */
-const MCP_JSON =
-  /(^|\/)(\.mcp\.json|\.cursor\/mcp\.json|\.vscode\/mcp\.json|\.vscode\/settings\.json|\.gemini\/settings\.json|\.roo\/mcp\.json|\.amazonq\/mcp\.json)$/;
+/**
+ * Any JSON (or JSONC) file is a candidate MCP configuration, not just a
+ * fixed list of filenames: `ctx.filesFor(def)` already scopes this check to
+ * `ai-config`-tagged paths (path-tags.yaml), and `serverMaps()` below only
+ * reports something when the file actually has an `mcpServers`/`servers`/
+ * `mcp.servers` shape. A tool-specific filename list would need a new entry
+ * for every harness (it missed Windsurf's `serverUrl` configs); matching by
+ * extension instead means a new or unlisted tool (Windsurf, opencode, Cline,
+ * ...) is checked as soon as its path is tagged `ai-config`, with no engine
+ * change.
+ */
+const MCP_JSON = /\.jsonc?$/i;
 /** Codex CLI: [mcp_servers.<name>] tables in TOML. */
 const MCP_TOML = /(^|\/)\.codex\/config\.toml$/;
 const EXACT_VERSION = /^\d+\.\d+\.\d+(?:[-+].*)?$/;
@@ -20,7 +29,7 @@ const PACKAGE_NAME = /^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*$/i;
  * what the runtime loads: a registry or index override, or injected code.
  */
 const UNSAFE_ENV =
-  /^(?:npm_config_.*|.*REGISTRY.*|NODE_OPTIONS|NODE_PATH|NODE_TLS_REJECT_UNAUTHORIZED|NODE_EXTRA_CA_CERTS|PIP_INDEX_URL|PIP_EXTRA_INDEX_URL|PIP_FIND_LINKS|PIP_TRUSTED_HOST|UV_INDEX_URL|UV_EXTRA_INDEX_URL|UV_DEFAULT_INDEX|UV_INDEX|UV_FIND_LINKS|PYTHONPATH|LD_PRELOAD|DYLD_INSERT_LIBRARIES)$/i;
+  /^(?:npm_config_.*|.*REGISTRY.*|NODE_OPTIONS|NODE_PATH|NODE_TLS_REJECT_UNAUTHORIZED|NODE_EXTRA_CA_CERTS|PIP_INDEX_URL|PIP_EXTRA_INDEX_URL|PIP_FIND_LINKS|PIP_TRUSTED_HOST|UV_INDEX_URL|UV_EXTRA_INDEX_URL|UV_DEFAULT_INDEX|UV_INDEX|UV_FIND_LINKS|PYTHONPATH|LD_PRELOAD|DYLD_INSERT_LIBRARIES|HTTPS?_PROXY|ALL_PROXY|NO_PROXY)$/i;
 
 /** Removes // and /* *\/ comments and trailing commas outside strings (VS Code uses JSONC). */
 export function stripJsonc(text: string): string {
@@ -120,6 +129,7 @@ export function checkServer(
   cfg: ServerConfig,
   registry: McpServerEntry[],
   line?: number,
+  asOf?: string,
 ): Finding | undefined {
   const finding = (
     ruleId: string,
@@ -140,12 +150,21 @@ export function checkServer(
   const statusProblem = (entry: McpServerEntry, what: string, shown: string): Finding | undefined => {
     if (entry.status === 'approved') return undefined;
     if (entry.status === 'pending-inventory') {
+      const overdue = entry.review_by !== undefined && asOf !== undefined && asOf > entry.review_by;
+      if (!overdue) {
+        return finding(
+          'pending',
+          `MCP server "${name}" (${shown}) is still pending the AI inventory.`,
+          'Confirm it in the week-1 inventory.',
+          what,
+          'warning',
+        );
+      }
       return finding(
-        'pending',
-        `MCP server "${name}" (${shown}) is still pending the AI inventory.`,
-        'Confirm it in the week-1 inventory.',
+        'pending-overdue',
+        `MCP server "${name}" (${shown}) is still pending the AI inventory, past its ${entry.review_by} review date.`,
+        'Confirm it in registry/ai-registry.yaml (approved or not-approved), or remove it from the configuration.',
         what,
-        'warning',
       );
     }
     return finding(
@@ -549,7 +568,7 @@ export function mcpAllowlist(ctx: RunContext, def: CheckDefinition): Finding[] {
         continue;
       }
       for (const s of servers) {
-        const f = checkServer(def.id, file.path, s.name, s.cfg as ServerConfig, registry, s.line);
+        const f = checkServer(def.id, file.path, s.name, s.cfg as ServerConfig, registry, s.line, ctx.asOf);
         if (f) findings.push(f);
       }
       continue;
@@ -584,7 +603,15 @@ export function mcpAllowlist(ctx: RunContext, def: CheckDefinition): Finding[] {
     }
     for (const servers of maps) {
       for (const [name, cfg] of Object.entries(servers)) {
-        const f = checkServer(def.id, file.path, name, (cfg ?? {}) as ServerConfig, registry, lineOf(text, name));
+        const f = checkServer(
+          def.id,
+          file.path,
+          name,
+          (cfg ?? {}) as ServerConfig,
+          registry,
+          lineOf(text, name),
+          ctx.asOf,
+        );
         if (f) findings.push(f);
       }
     }

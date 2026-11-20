@@ -1135,7 +1135,10 @@ export function windowsCommandLine(args: string[]): string {
       if (/^[\w@+=:,./\\-]+$/.test(a)) return a;
       if (/["%!\r\n\0]/.test(a))
         throw new InputError(`refusing the argument ${JSON.stringify(a.slice(0, 60))}: cmd.exe would interpret it`);
-      return `"${a}"`;
+      // A backslash run right before the closing quote must be doubled, or
+      // CommandLineToArgvW reads the trailing \" as an escaped literal quote
+      // instead of the argument's end (e.g. a directory path "C:\repo\").
+      return `"${a.replace(/\\+$/, (m) => m + m)}"`;
     })
     .join(' ');
 }
