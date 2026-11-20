@@ -382,19 +382,64 @@ const globalGet = (key: string): string | undefined => {
   return r.ok && r.raw ? r.raw : undefined;
 };
 
+/** One core.hooksPath setting git reads outside any repository. */
+export interface HooksPathSetting {
+  /** system, global or command (git config --show-scope). */
+  scope: string;
+  /** Where it is set, e.g. file:C:/Users/dev/.gitconfig (an included file is named itself). */
+  origin: string;
+  value: string;
+}
+
+/**
+ * Every core.hooksPath git reads outside a repository, in the order git reads
+ * them (system, global and every file they include): the last one is the one
+ * git uses. Read from the temp directory, so the repository qa happens to run
+ * in does not count.
+ */
+export function hooksPathSettings(): HooksPathSetting[] {
+  const res = spawnSync('git', ['config', '--show-origin', '--show-scope', '--get-all', 'core.hooksPath'], {
+    cwd: tmpdir(),
+    encoding: 'utf8',
+    windowsHide: true,
+    timeout: COMMAND_TIMEOUT_MS,
+  });
+  if (res.error || res.status !== 0) return [];
+  const settings: HooksPathSetting[] = [];
+  for (const line of res.stdout.split(/\r?\n/)) {
+    if (line.trim() === '') continue;
+    const [scope, origin, ...rest] = line.split('\t');
+    if (scope === 'local' || scope === 'worktree') continue;
+    settings.push({ scope, origin: unquoteOrigin(origin ?? ''), value: rest.join('\t') });
+  }
+  return settings;
+}
+
+/** git quotes an origin path with backslashes in it: file:"C:\\Users\\dev\\.gitconfig". */
+function unquoteOrigin(origin: string): string {
+  const m = /^(\w+):"(.*)"$/.exec(origin);
+  return m ? `${m[1]}:${m[2].replace(/\\(.)/g, '$1')}` : origin;
+}
+
+/** '"<value>" (global, file:C:/Users/dev/.gitconfig)', redacted, for messages. */
+export const describeHooksPath = (s: HooksPathSetting): string =>
+  `"${redact(s.value)}" (${s.scope}, ${redact(s.origin)})`;
+
 /**
  * Connects the hooks for every repository on the machine: writes the scripts
  * into <home>/hooks and points git's global core.hooksPath at them. A
- * core.hooksPath set to anything else is left alone.
+ * core.hooksPath set to anything else, in any scope or included file, is left
+ * alone and setup stops; after writing, the value git actually uses is read
+ * back, so an include that overrides qa's is caught.
  */
 function setupGlobalHooks(row: Row): boolean {
   const dir = globalHooksDir();
-  const current = globalGet('core.hooksPath');
-  if (current && !sameDir(current, dir)) {
+  const foreign = hooksPathSettings().filter((s) => !sameDir(s.value, dir));
+  if (foreign.length > 0) {
     row(
       'FAIL',
       'global hooks',
-      `git's global core.hooksPath is already "${redact(current)}"; left as it is. To connect the qa hooks for every repository, unset it (git config --global --unset core.hooksPath) and run "qa setup" again, or run "qa setup --no-global-hooks" to connect new clones only`,
+      `git's ${foreign.map((f) => `${f.scope} core.hooksPath is already ${describeHooksPath(f)}`).join(', and its ')}; left as it is. To connect the qa hooks for every repository, remove that setting from where it is set and run "qa setup" again, or run "qa setup --no-global-hooks" to connect new clones only`,
     );
     return false;
   }
@@ -407,6 +452,17 @@ function setupGlobalHooks(row: Row): boolean {
   const set = run('git', ['config', '--global', 'core.hooksPath', dir.split('\\').join('/')]);
   if (!set.ok) {
     row('FAIL', 'global hooks', `git config --global core.hooksPath failed: ${set.out.slice(0, 300)}`);
+    return false;
+  }
+  const effective = hooksPathSettings().at(-1);
+  if (!effective || !sameDir(effective.value, dir)) {
+    row(
+      'FAIL',
+      'global hooks',
+      effective
+        ? `git uses core.hooksPath ${describeHooksPath(effective)}, which overrides qa's ${dir}; the qa hooks would not run. Remove that setting and run "qa setup" again`
+        : `git does not read the core.hooksPath qa wrote (${dir}); check git config --show-origin --get-all core.hooksPath`,
+    );
     return false;
   }
   row(
@@ -486,9 +542,18 @@ export async function setup(config: Config, opts: SetupOptions, print: (s: strin
 
   const pythonOk = opts.python ? setupPython(config, pins, row) : true;
   if (opts.gitleaks && pins.gitleaks) await setupGitleaks(config, pins.gitleaks, opts, row);
-  if (opts.globalHooks ?? true) setupGlobalHooks(row);
+  const problemsBeforeHooks = problems;
+  let hooksInstalled = false;
+  if (opts.globalHooks ?? true) hooksInstalled = setupGlobalHooks(row);
   else if (opts.gitTemplate && pythonOk) setupGitTemplate(row);
   pathAdvice(row);
+  if (problemsBeforeHooks > 0 && hooksInstalled) {
+    row(
+      'WARN',
+      'hooks',
+      'installed, but the checks that need a tool marked FAIL above will not run on your commits and pushes until it is fixed and "qa setup" is run again',
+    );
+  }
   print(
     problems > 0 ? `result: NOT DONE (${problems} problem(s))` : 'result: DONE. Check a repository with: qa doctor',
   );

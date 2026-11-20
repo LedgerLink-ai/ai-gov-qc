@@ -1,52 +1,137 @@
-# qc-workflows
+# ai-gov-qc
 
-LedgerLink QA harness: the governance registries and the `qa` check engine. The git hooks, the MCP server, the CI gate and the release job are thin wrappers around this one engine, so a finding is identical whichever path found it.
+LedgerLink's QA harness for AI-assisted development. It is the source of the `qa` engine and the `@ledgerlink/qa` package, plus the registries and policy the engine enforces.
+
+Developers install the package once. It then checks every commit and push in LedgerLink-ai repositories for these things:
+
+- leaked secrets;
+- unsafe or unapproved AI-agent configuration;
+- changes to protected files;
+- risky code;
+- ticket-based branch and commit conventions.
+
+The same engine runs at commit, at push and before a pull request, so a finding is identical whichever path found it.
 
 Design: `LedgerLink QA Harness Technical Design` V2.2. Build order: `qa-harness-guide/IMPLEMENTATION_PLAN.md`.
 
-> **Hosted for now at [bhushan-ht/ledgerlink-qa](https://github.com/bhushan-ht/ledgerlink-qa).** It moves to the LedgerLink-ai organisation once LedgerLink provides organisation-owner action (client request 1.1).
+**Contents:** [What it does](#what-it-does) · [Requirements](#requirements) · [Where qa is installed](#where-qa-is-installed) · [Install](#install) · [For developers](#for-developers) · [Documentation](#documentation) · [Status and limits](#status-and-limits) · [Development](#development) · [Layout](#layout)
 
-## Status (2 Nov 2026)
+## What it does
 
-**Local checks on the developer's machine** (AI Code Review implementation, section 2): done, in three checkpoints: pre-commit (with prepare-commit-msg, which pre-fills the message), pre-push, and pre-PR (`pre-commit run --hook-stage manual --all-files`). Installed from one package that works on Windows, macOS and Linux: `npm install -g` the `.tgz`, then `qa setup` for pre-commit, Semgrep and Gitleaks ([docs/PACKAGE.md](docs/PACKAGE.md)). Setup and manual testing in [docs/PRECOMMIT.md](docs/PRECOMMIT.md). Added since 22 Oct:
+- **Hooks for every repository.** `qa setup` connects git's `pre-commit`, `prepare-commit-msg`, `commit-msg` and `pre-push` hooks for every clone on the machine through git's global `core.hooksPath`. Nothing is copied into any repository.
+- **Only in LedgerLink-ai repositories.** The engine acts only in repositories owned by `LedgerLink-ai` and listed with `enabled: true` in [registry/repositories.yaml](registry/repositories.yaml). Everywhere else the hooks do nothing ([execution gate](#where-the-engine-runs-execution-gate)).
+- **Commit messages written for you.** `prepare-commit-msg` pre-fills `<type>(<TICKET-123>): ` from a branch named `<type>/<TICKET-123>-<description>`, and an `Assisted-by:` trailer recording the AI tool used ([docs/BRANCH-AND-COMMIT-CONVENTIONS.md](docs/BRANCH-AND-COMMIT-CONVENTIONS.md)).
+- **Report first, then block.** Every check reports problems until its agreed blocking date in [policy.yaml](policy.yaml), and blocks from then. A baseline and dated exemptions cover known findings.
+- **One installable package.** It works the same on Windows, macOS and Linux. Every new version merged into `main` is released automatically, with a SHA-256 checksum and a signed provenance attestation.
 
-- `.pre-commit-hooks.yaml` and `templates/pre-commit-config.yaml`
-- Gitleaks rules for blockchain private keys and BIP39 mnemonics
-- `qa prepare-commit-msg`: `<type>(<TICKET-123>): ` from the branch, Assisted-by default, AI Co-authored-by converted
-- the `Assisted-by: <tool>, <model>, <version>` format
-- `sast.semgrep` at pre-push
-- `qa prepush` and `qa doctor`
-- `qa prepr` with the pull request checks `pr.branch-name`, `pr.commits`, `pr.diff-size` and `tests.coverage`
-- ticket-based branch names and commit messages (AIQC-87): `branch.ticket` (pre-commit), `commit.message` (the new commit-msg hook, `qa commit-msg`) and `pr.commit-messages` require `<type>/<TICKET-123>-<description>` branches and `<type>(<TICKET-123>): <description>` subjects, the key taken from the branch; report only until a blocking date is agreed ([docs/BRANCH-AND-COMMIT-CONVENTIONS.md](docs/BRANCH-AND-COMMIT-CONVENTIONS.md))
-- the `repo-script` and `repo-tool` hooks for each repository's tests, type check and build
-- the hook sandbox
-- the `@ledgerlink/qa` package (`npm run package`), `qa setup`, `qa --require <version>`, and the `ci` and `release` workflows (the first automatic release was v0.2.2, on 3 Nov)
+### Checks
 
-Tests: 69 pass. Conformance: 16 of 16 fixtures pass.
+| Check                                                                                  | When it runs                      | What it catches                                                                                                         | Mode                    |
+| -------------------------------------------------------------------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| `secrets.gitleaks`                                                                     | Commit                            | Secrets: API keys, tokens, passwords and other credentials in any file, private keys, blockchain keys and BIP39 phrases | Blocks from 16 Nov 2026 |
+| `ai-config.content-lint`                                                               | Commit                            | Hidden Unicode and risky instructions in `AGENTS.md`, `CLAUDE.md`, `.cursor/**` and similar files                       | Blocks from 30 Nov 2026 |
+| `ai-config.mcp-allowlist`                                                              | Commit                            | MCP servers not in [registry/ai-registry.yaml](registry/ai-registry.yaml)                                               | Blocks from 30 Nov 2026 |
+| `paths.protected`                                                                      | Commit                            | Changes to protected paths (agents blocked, humans need code-owner review)                                              | Blocks from 14 Dec 2026 |
+| `commit.trailer`                                                                       | Commit                            | A malformed `Assisted-by:` trailer                                                                                      | Report                  |
+| `branch.ticket`                                                                        | Commit                            | A branch name without a valid ticket key                                                                                | Report                  |
+| `commit.message`                                                                       | Commit message                    | A subject that does not follow `<type>(<TICKET-123>): <description>`                                                    | Report                  |
+| `sast.semgrep`                                                                         | Push                              | LedgerLink's fast Semgrep rules (for example money types)                                                               | Blocks from 16 Nov 2026 |
+| `pr.branch-name`, `pr.commits`, `pr.commit-messages`, `pr.diff-size`, `tests.coverage` | `qa prepr`, before a pull request | Branch, commit and size conventions for the whole pull request, and test coverage                                       | Report                  |
 
-### Engine status (22 Oct 2026, step 1 of the plan)
+The repository's own Prettier, ESLint, tests, type check and build can also run as hooks (`repo-tool`, `repo-script`). The full list, with what each check is for, is in [checks.yaml](checks.yaml).
 
-| Piece                                                                                                                                                                                                               | State                                                                     |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Registries and JSON schemas (`registry/`, `path-tags.yaml`, `checks.yaml`, `policy.yaml`, `exemptions.yaml`, `schemas/`)                                                                                            | Done; validated at load time and in tests                                 |
-| Engine core: CLI, changed-file selection (staged / merge-base / files / all), path tags, policy modes with switch-on dates, baseline, exemptions, SARIF 2.1.0, `evidence.json`, exit codes 0/1/2, fail closed in CI | Done                                                                      |
-| Checks: `ai-config.content-lint` (C14-4), `ai-config.mcp-allowlist` (C14-6), `paths.protected` (C15-4), `commit.trailer` (C11-2)                                                                                    | Done                                                                      |
-| Check: `secrets.gitleaks`                                                                                                                                                                                           | Adapter done; not yet run here because Gitleaks is not installed (week 2) |
-| Conformance fixtures and `qa conform` (API path and CLI path)                                                                                                                                                       | 9 pass, 1 skipped (needs Gitleaks), 1 pending (BIP39 rule, week 2)        |
-| Git hooks installer, `qa commit-metadata`, MCP server, `qa init`, OKF bundle, gate                                                                                                                                  | Not started (weeks 2 to 6)                                                |
+## Requirements
 
-## Production use (issue #15)
+To install and use the package:
 
-| Topic                                              | Document                                   |
-| -------------------------------------------------- | ------------------------------------------ |
-| Install, configure, release, roll back, maintain   | [docs/OPERATIONS.md](docs/OPERATIONS.md)   |
-| Pull request gate, rulesets, limits of local hooks | [docs/ENFORCEMENT.md](docs/ENFORCEMENT.md) |
-| Security review, threat model, residual risks      | [docs/SECURITY.md](docs/SECURITY.md)       |
-| Benchmarks                                         | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) |
-| Test suites                                        | [docs/TESTING.md](docs/TESTING.md)         |
-| Release notes                                      | [CHANGELOG.md](CHANGELOG.md)               |
+| Dependency        | Version                                          | Used for                                                       |
+| ----------------- | ------------------------------------------------ | -------------------------------------------------------------- |
+| Node.js, with npm | 20 or later                                      | Runs `qa`                                                      |
+| Git               | Any recent version (on Windows, Git for Windows) | The hooks                                                      |
+| Python            | 3.11 to 3.14                                     | A private environment for pre-commit and Semgrep               |
+| GitHub CLI (`gh`) | Any recent version, signed in                    | Downloading a release and verifying its attestation (optional) |
 
-## Use
+`qa setup` installs the rest, at the versions pinned in [policy.yaml](policy.yaml). It checks every download before using it:
+
+- pre-commit and Semgrep come from PyPI and are hash-checked;
+- Gitleaks comes from its GitHub release and is checked against its SHA-256.
+
+Setup needs network access to github.com, pypi.org and files.pythonhosted.org, and about 420 MB of disk. It needs no administrator rights.
+
+To develop this repository you also need `npm install`. The scanners are only needed for the tests that run them.
+
+## Where qa is installed
+
+| What                                                | Windows                                     | macOS and Linux                                    |
+| --------------------------------------------------- | ------------------------------------------- | -------------------------------------------------- |
+| The npm package                                     | `%APPDATA%\npm\node_modules\@ledgerlink\qa` | `$(npm prefix -g)/lib/node_modules/@ledgerlink/qa` |
+| The `qa` command                                    | `%APPDATA%\npm\qa.cmd`                      | `$(npm prefix -g)/bin/qa`                          |
+| qa home (`QA_HOME` or `--home` to change it)        | `%USERPROFILE%\.ledgerlink-qa`              | `~/.ledgerlink-qa`                                 |
+| pre-commit and Semgrep (private Python environment) | `<qa home>\venv\Scripts`                    | `<qa home>/venv/bin`                               |
+| Gitleaks and tool launchers (add to PATH)           | `<qa home>\bin`                             | `<qa home>/bin`                                    |
+| Hook scripts for every repository                   | `<qa home>\hooks`                           | `<qa home>/hooks`                                  |
+| Scanner result cache                                | `<qa home>\cache`                           | `<qa home>/cache`                                  |
+| Global git setting `core.hooksPath`                 | `%USERPROFILE%\.gitconfig`                  | `~/.gitconfig`                                     |
+| pre-commit's own cache                              | `%USERPROFILE%\.cache\pre-commit`           | `~/.cache/pre-commit`                              |
+
+## Install
+
+Quick install, on Windows, macOS and Linux (replace `<version>` with the [latest release](https://github.com/LedgerLink-ai/ai-gov-qc/releases), for example `0.2.3`):
+
+```bash
+npm install -g --ignore-scripts https://github.com/LedgerLink-ai/ai-gov-qc/releases/download/v<version>/ledgerlink-qa-<version>.tgz
+qa setup
+```
+
+Then put `~/.ledgerlink-qa/bin` on your PATH and run `qa doctor` inside a LedgerLink-ai repository.
+
+The quick install does not check the package's SHA-256 or its build provenance attestation. Each release's notes have the step-by-step install that checks both, for each OS, and how to upgrade, uninstall and roll back. To remove qa, run `qa setup --uninstall` first and then `npm uninstall -g @ledgerlink/qa`.
+
+## For developers
+
+The rules every branch, commit and pull request follows, and what AI agents may and may not do, are in **[docs/RULES.md](docs/RULES.md)**. In short:
+
+| What                  | Rule                                                                                                                             |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Branch                | `<type>/<TICKET-123>-<short-description>`, e.g. `feature/LCORE-212-refund-idempotency`                                           |
+| Commit subject        | `<type>(<TICKET-123>): <description>`; the hook writes the prefix from the branch                                                |
+| AI help               | `Assisted-by: <tool>, <model>, <version>`; set a default once with `git config --global ledgerlink.assistedBy "..."` (or `none`) |
+| Never commit          | Secrets, floating-point money in payment or ledger code, instructions to AI tools to weaken a control, unapproved MCP servers    |
+| Before a pull request | `qa prepr`: branch, every commit, size (400 / 1,000 lines) and coverage (80%)                                                    |
+| AI agents             | Their own identity, `QA_ACTOR=agent`, every hook run, no protected paths                                                         |
+
+When a check stops a commit, the first line of its output says what was found and where; [docs/RULES.md](docs/RULES.md#6-when-a-check-stops-you) says what to do.
+
+## Documentation
+
+| Topic                                              | Document                                                                       |
+| -------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Rules for developers and AI agents                 | [docs/RULES.md](docs/RULES.md)                                                 |
+| Install, configure, release, roll back, maintain   | [docs/OPERATIONS.md](docs/OPERATIONS.md)                                       |
+| The package: contents, hosting, releases           | [docs/PACKAGE.md](docs/PACKAGE.md)                                             |
+| Hooks on a developer's machine, and manual testing | [docs/PRECOMMIT.md](docs/PRECOMMIT.md)                                         |
+| Branch names and commit messages                   | [docs/BRANCH-AND-COMMIT-CONVENTIONS.md](docs/BRANCH-AND-COMMIT-CONVENTIONS.md) |
+| Limits of local hooks; pull requests               | [docs/ENFORCEMENT.md](docs/ENFORCEMENT.md)                                     |
+| Security review, threat model, residual risks      | [docs/SECURITY.md](docs/SECURITY.md)                                           |
+| Benchmarks                                         | [docs/PERFORMANCE.md](docs/PERFORMANCE.md)                                     |
+| Test suites                                        | [docs/TESTING.md](docs/TESTING.md)                                             |
+| Defaults taken for open decisions                  | [docs/DECISIONS.md](docs/DECISIONS.md)                                         |
+| Changes in each version                            | [CHANGELOG.md](CHANGELOG.md)                                                   |
+
+## Status and limits
+
+- **Done:** the local checkpoints, which are:
+
+  - pre-commit, with prepare-commit-msg and commit-msg;
+  - pre-push;
+  - `qa prepr`.
+
+  Also done: the execution gate, hooks for every repository, the package with automatic releases, and the production hardening (issue #15).
+
+- **Pull requests are checked outside this repository.** The GitHub pull request gate was removed (AIQC-92). qa's checks run on developers' machines, where they cannot be enforced; [docs/ENFORCEMENT.md](docs/ENFORCEMENT.md) explains the limits of local hooks.
+- **Not built yet:** the MCP server, `qa init` and the onboarding and offboarding commands (issue #14).
+
+## Development
 
 Requires Node 20 or later.
 
@@ -56,12 +141,22 @@ npm run build
 npm test
 npm run validate
 npm run conform
+npm run lint
+npm run format:check
+npm run release:check
+```
+
+Build the package (`out/ledgerlink-qa-<version>.tgz` and its `.sha256`), and preview a version's release notes:
+
+```bash
+npm run package
+node scripts/release.js --notes <version>
 ```
 
 Run the engine against a repository:
 
 ```bash
-node packages/engine/bin/qa.js precommit --config "C:/LedgerLink Client/Implementation/qc-workflows"
+node packages/engine/bin/qa.js precommit --config <path to this checkout>
 node packages/engine/bin/qa.js check --base origin/develop --actor agent --format sarif
 node packages/engine/bin/qa.js rules src/transaction/retry.ts --repo link_core
 node packages/engine/bin/qa.js help
@@ -71,13 +166,13 @@ Exit codes: `0` pass, `1` blocking findings, `2` the engine could not run. Calle
 
 ## How a run decides
 
-1. **Changed files.** The run uses one of: staged content (read from the index, so pre-commit checks exactly what will be committed), files since the merge base, an explicit list, or a whole folder.
+1. **Changed files.** The run uses one of: staged content (read from the index, so pre-commit checks exactly what will be committed), files since the merge base, an explicit list, or a whole folder. A renamed or moved file keeps its old path, so `paths.protected` sees a protected file moved away. `--files` paths must be relative and stay inside `--root`.
 2. **Tags.** Each file gets its tags from `path-tags.yaml` for this repository. `docs-only` applies only to files with no other tag.
-3. **Checks.** A check runs when it is in `checks.yaml`, applies to the tags, is in scope and is not `off`. Stages run cheapest first; a blocking finding stops later stages (P2). Skipped checks are listed with a reason.
-4. **Mode.** In `policy.yaml`, a check reports until its `block_from` date and blocks from then (P9). Override the date with `--as-of`.
-5. **Blocking.** A finding blocks only when it is error level, its check is in block mode, and it is neither in `.qa/baseline.sarif` nor covered by an unexpired exemption.
+3. **Checks.** A check runs when it is in `checks.yaml`, applies to the tags, is in scope and is not `off`. Deleted files count only for a check with `include_deleted: true` in `checks.yaml` (`paths.protected` has it, so a change that only deletes files is still checked). Stages run cheapest first; a blocking finding stops later stages (P2). Skipped checks are listed with a reason. A file a native check applies to but cannot read as text (binary, larger than 2 MB, or an unsupported encoding) is reported as `unscannable`: a warning locally, an error in CI. UTF-8 (with or without a byte order mark) and UTF-16 with a byte order mark are read.
+4. **Mode.** In `policy.yaml`, a check with `mode: report` reports until its `block_from` date and blocks from then (P9); `block_from` is only valid with `mode: report` (`mode: block` with `block_from` is rejected by `qa validate`). Override the date with `--as-of`. Dates (`block_from`, exemption `expires`, `--as-of`, `QA_AS_OF`) are UTC calendar dates, `YYYY-MM-DD`; an impossible date such as `2026-02-31` is rejected.
+5. **Blocking.** A finding blocks only when it is error level, its check is in block mode, and it is neither covered by an unexpired exemption nor in `.qa/baseline.sarif`. Exemptions are considered first: a finding whose exemption has expired blocks even when it is also in the baseline. `qa baseline` records only error-level findings that no exemption covers (notes and warnings never block, so they are not recorded). In CI without `--base`, the working tree's baseline is ignored. In-repository suppressions (`gitleaks:allow` comments, `.gitleaksignore`, `nosemgrep` comments, `.semgrepignore`) are ignored; exemptions and the baseline are the only suppressions.
 6. **Fail closed.** In CI, a check that cannot run (for example, a missing scanner) is an engine error, exit 2. Locally it is skipped with "runs in CI", and the pipeline re-runs everything anyway.
-7. **Actor.** `paths.protected` blocks agents (`--actor agent`, or `QA_ACTOR=agent`) and only notes the path for humans, who need code-owner review instead.
+7. **Actor.** `paths.protected` blocks agents (`--actor agent`, or `QA_ACTOR=agent`) and only notes the path for humans, who need code-owner review instead. In the pull request gate the agent rules apply when the author is a registered agent, or when any commit of the pull request declares AI assistance (`Assisted-by`, or an AI `Co-authored-by`).
 
 Findings are plain text with a fix hint and the control and rule IDs from `repo-docs/capabilities`. They never contain secret values and are never phrased as instructions to an agent.
 
@@ -86,8 +181,10 @@ Findings are plain text with a fix hint and the control and rule IDs from `repo-
 The engine acts only in a repository that is owned by `LedgerLink-ai` and listed with `enabled: true` in [registry/repositories.yaml](registry/repositories.yaml). Anywhere else it does nothing, silently, and exits 0: personal repositories, other organisations, forks, unlisted repositories, and repositories an administrator disabled. The hook commands (`check`, `precommit`, `prepare-commit-msg`, `commit-msg`, `prepush`, `prepr`, `baseline`, `repo-tool`, `repo-script`) are gated; `setup`, `doctor`, `rules`, `validate`, `conform`, `version` and `help` are not. `qa doctor` shows whether QA is enabled for the current repository.
 
 - **Local:** identity is the `origin` remote (`owner/name`), not the folder name or `--repo`. A missing or unrecognised origin means skip. A developer controls their own remote, so this keeps the hooks out of unrelated repositories but is not tamper-proof.
-- **GitHub Actions:** identity comes from `GITHUB_REPOSITORY` and the event payload, not the checkout. Forks, and pull requests from forks, are skipped. An identity that cannot be verified is exit 2 (fail closed).
-- **Elsewhere in CI** (`CI` set, not GitHub Actions): an origin that cannot be verified is exit 2.
+- **The origin must be GitHub.** An https, http or `git://` origin must name `github.com`. An ssh or scp-like origin may name `github.com`, `ssh.github.com`, or an SSH host alias that `ssh -G` resolves to one of them (for example `git@github-ledgerlink:LedgerLink-ai/link_core.git`, with `github-ledgerlink` mapped to `github.com` in `~/.ssh/config`). An alias that cannot be resolved counts as not verified: skipped locally, exit 2 in CI.
+- **Names ignore case.** Repository names are matched ignoring case, and the run uses the allowlist's spelling (for path tags, exemptions and conventions).
+- **GitHub Actions:** identity comes from `GITHUB_REPOSITORY` and the event payload, not the checkout. Forks, and pull requests from forks, are skipped. An identity that cannot be verified is exit 2 (fail closed). `--config`/`QA_CONFIG_DIR`, `--as-of`/`QA_AS_OF`, `--exclude`, `--mode local`, `--actor`/`QA_ACTOR` and `--repo` are refused (exit 2).
+- **Elsewhere in CI** (`CI` set, not GitHub Actions): an origin that cannot be verified is exit 2 for commands run explicitly (`check`, `precommit`, `prepush`, `prepr`, `baseline`). The local git hook paths (`hook`, `prepare-commit-msg`, `commit-msg`) skip instead, so `CI` set in a developer's shell does not block commits.
 - **Allowlist changes** are pull requests to this repository with code-owner review; the list ships in the released package. Onboarding and offboarding commands (issue #14) are not built yet.
 
 ## Layout
@@ -103,11 +200,13 @@ schemas/                    JSON schemas for all of the above and for fixtures
 config/gitleaks.toml        Gitleaks rules used by secrets.gitleaks (generated: npm run gen:gitleaks)
 config/semgrep/             fast Semgrep rule set used by sast.semgrep at pre-push
 .pre-commit-hooks.yaml      the hooks this repository provides to LedgerLink repositories
-templates/                  .pre-commit-config.yaml to copy into each repository
-scripts/                    local release, sandbox and Gitleaks config generator
+templates/                  the default hook configuration, the release notes
+scripts/                    package and release checks, local release, sandbox, Gitleaks config generator
 conformance/fixtures/       planted defects; tree files are .tmpl templates
-packages/engine/            the qa engine (published later as @ledgerlink/qa-mcp)
+packages/engine/            the qa engine and CLI, released as @ledgerlink/qa
+.github/workflows/          ci (Windows, macOS, Linux), release, branch policy
 docs/DECISIONS.md           defaults taken for open decisions
+docs/RULES.md               commit, pull request and AI agent rules for developers
 ```
 
 ### Conformance fixtures
@@ -129,4 +228,4 @@ Changes reach `main` in two steps, each a pull request:
 1. A feature branch (for example `feature/LCORE-210-limit-invariants`) into `dev`. The `ci` checks on Windows, macOS and Linux must pass.
 2. `dev` into `main`, merged with a merge commit so the two branches stay in step. The `ci` checks and `branch-policy` must pass; `branch-policy` fails any pull request into `main` that does not come from `dev`.
 
-Both branches take changes only through pull requests, with conversations resolved, and cannot be force-pushed or deleted. Release tags (`v*`) cannot be moved or deleted. When a merge into `main` changes the version in `package.json`, the release workflow tags it and publishes the package ([docs/PACKAGE.md](docs/PACKAGE.md)).
+Both branches take changes only through pull requests, with conversations resolved, and cannot be force-pushed or deleted. Release tags (`v*`) cannot be moved or deleted. When a merge into `main` changes the version in `package.json`, the release workflow tags it and publishes the package ([docs/PACKAGE.md](docs/PACKAGE.md)). The release notes are built from [templates/release-notes.md](templates/release-notes.md) and the version's `CHANGELOG.md` section. The pull request list leaves out pull requests that were reverted before the release.

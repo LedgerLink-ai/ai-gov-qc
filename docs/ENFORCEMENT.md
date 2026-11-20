@@ -1,8 +1,22 @@
-# Enforcement: why the checks cannot be skipped
+# Enforcement: the limits of local hooks
 
-Issue #15, "Bypass prevention". The local hooks are fast feedback; the
-control is the pull request gate in GitHub Actions, made mandatory by
-rulesets that only organisation administrators can bypass.
+qa runs on the developer's machine: at every commit and push through the git
+hooks, and before a pull request when the developer runs `qa prepr`. These
+checks are fast feedback. They are not an enforcement point, because the
+developer controls the machine they run on.
+
+## Pull requests are checked outside this repository
+
+Pull request checks for LedgerLink-ai repositories are handled separately,
+not by this repository. ai-gov-qc used to ship a GitHub pull request gate
+(`.github/workflows/qa-pr.yml`, a caller stub and organisation and repository
+rulesets). It was never enabled in any repository and was removed in AIQC-92.
+Releases up to v0.2.3 still contain it at their tag.
+
+The `qa prepr` command and the `pr.*` checks stay in the package: developers
+can run them before opening a pull request
+([BRANCH-AND-COMMIT-CONVENTIONS.md](BRANCH-AND-COMMIT-CONVENTIONS.md),
+[PRECOMMIT.md](PRECOMMIT.md)).
 
 ## What local hooks cannot guarantee
 
@@ -18,120 +32,40 @@ They are skipped or defeated by:
 | An old qa, or a missing scanner                           | `--require` stops an old qa; a missing scanner defers to CI     |
 | The commit itself (rebase, amend, `commit-tree`)          | hooks see only what git hands them                              |
 
-None of these reach the pull request gate, which runs on GitHub's runners
-with qa and its configuration from a verified release.
+Anything that must hold for every change has to be checked where the
+developer cannot skip it: on the pull request, by the checks run outside this
+repository, and by each repository's branch rulesets and code-owner review.
 
-## The pull request gate
+## This repository's own rulesets
 
-[`.github/workflows/qa-pr.yml`](../.github/workflows/qa-pr.yml) runs on every
-pull request into a protected branch of an opted-in repository:
+The rules that protect qa itself are in `config/github/` too, and an
+administrator of `LedgerLink-ai/ai-gov-qc` applies them (repository settings,
+Rules, Rulesets; or `gh api -X PUT repos/LedgerLink-ai/ai-gov-qc/rulesets/<id> --input <file>`):
 
-0. Fails a pull request from a fork before anything runs: a required check
-   must never pass without checking.
-1. Installs the pinned qa release (`qa-version`), after checking its SHA-256
-   and its build provenance attestation (signed by this repository's
-   `release.yml`). Nothing from the pull request runs before this.
-2. Installs Gitleaks, Semgrep and pre-commit at the pinned versions; every
-   download is hash-checked.
-3. Runs `qa prepr --mode ci`: every stage, on everything the pull request
-   changes, with the configuration released with qa. In GitHub Actions the
-   engine refuses `--config` and `QA_CONFIG_DIR`, takes the repository's
-   identity from the Actions environment (only allowlisted LedgerLink-ai
-   repositories run; forks never do) and reads the baseline from the base
-   branch.
-4. Fails on a blocking finding (exit 1) or on any check that could not run
-   (exit 2). Uploads SARIF to code scanning and keeps `evidence.json` for 90
-   days; the job summary lists every check.
+| File                                                                                | Protects       | Rules                                                                                                                                                                                          |
+| ----------------------------------------------------------------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`repo-ruleset-main.json`](../config/github/repo-ruleset-main.json)                 | `main`         | Pull request with **one approval and code-owner review**, stale approvals dismissed, threads resolved, merge commits only (dev is merged into main); CI on three OSes and `branch-policy` pass |
+| [`repo-ruleset-dev.json`](../config/github/repo-ruleset-dev.json)                   | `dev`          | Pull request with **one approval and code-owner review**, stale approvals dismissed, threads resolved, squash or merge; CI on three OSes passes                                                |
+| [`repo-ruleset-release-tags.json`](../config/github/repo-ruleset-release-tags.json) | `refs/tags/v*` | Release tags cannot be created, moved or deleted, except by GitHub Actions (`release.yml` creates them)                                                                                        |
 
-The job is named `pull request checks`; called from a stub, its status check
-is **`qa / pull request checks`**.
-
-## Making it mandatory
-
-Organisation owners do this once; repository settings are not enough on their
-own, because a repository admin could change them. Rulesets for it are in
-[`config/github/`](../config/github).
-
-### Option A (preferred): organisation ruleset with a required workflow
-
-[`config/github/org-ruleset-qa.json`](../config/github/org-ruleset-qa.json)
-targets the opted-in repositories (the same names as
-`registry/repositories.yaml`) and their default, `dev`, `develop` and
-`release/*` branches, and:
-
-- requires `qa-pr.yml` from this repository, at the release tag, to pass
-  before merging ("Require workflows to pass before merging")
-- requires a pull request with one approval, code-owner review, approval of
-  the last push and resolved threads; dismisses stale approvals
-- blocks force pushes and branch deletion
-- lets only **organisation administrators** bypass, and only through a pull
-  request (`bypass_mode: pull_request`), so every bypass is recorded
-
-Fill in `repository_id` (the id of this repository), then:
-
-```bash
-gh api repos/LedgerLink-ai/ai-gov-qc --jq .id
-gh api -X POST orgs/LedgerLink-ai/rulesets --input config/github/org-ruleset-qa.json
-```
-
-Required workflows in rulesets need GitHub Enterprise Cloud (or Team, for
-public repositories). Check LedgerLink's GitHub plan first; otherwise use
-Option B.
-
-### Option B: a stub workflow and a required status check
-
-Where Option A is not available:
-
-1. Copy [`templates/qa-pr-caller.yml`](../templates/qa-pr-caller.yml) to
-   `.github/workflows/qa.yml` in the repository. Pin `uses:` to the commit of
-   the release tag (`git rev-list -n 1 v<version>`).
-2. Apply
-   [`config/github/repo-ruleset-qa-required-check.json`](../config/github/repo-ruleset-qa-required-check.json),
-   which requires the `qa / pull request checks` status check (with
-   up-to-date branches) and the same review rules; only the repository admin
-   role can bypass, through a pull request:
-
-   ```bash
-   gh api -X POST repos/LedgerLink-ai/<repo>/rulesets --input config/github/repo-ruleset-qa-required-check.json
-   ```
-
-3. Keep `.github/` owned by DevOps in CODEOWNERS (it is a protected path), so
-   the stub cannot be removed without their review. This review is what holds
-   Option B: GitHub runs the stub from the pull request's own commit, so a
-   pull request that edits `.github/workflows/qa.yml` (to skip the checks, or
-   to call another `qa-repository`) gets a green check from its own version.
-   The ruleset's code-owner review and last-push approval stop it from
-   merging; Option A has no such gap, because the workflow comes from this
-   repository.
-
-### Rolling out a new qa release
-
-Option A: update `ref` in the organisation ruleset to the new tag. Option B:
-update `qa-version` and the pinned `uses:` in each stub (one pull request per
-repository, or a bulk change). In both, rolling back is the same change with
-the earlier version ([OPERATIONS.md](OPERATIONS.md#rollback)).
+As of 18 Nov 2026 the live `main` and `dev` rulesets require **no**
+approval and no code-owner review, so the code-owner review that the
+baseline, exemptions, allowlist and `.github/` rely on is not enforced in
+this repository until an administrator applies the two files above. The live
+release-tag ruleset blocks moving and deleting `v*` tags but not creating
+them; the file adds that. CODEOWNERS must name teams that exist, with write
+access, or code-owner review cannot be satisfied.
 
 ## Who can bypass
 
-| Control                         | Who can bypass                                                                                              | Recorded where                         |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| Local hooks                     | Anyone (`--no-verify`)                                                                                      | Nowhere; the pull request gate re-runs |
-| Organisation ruleset (Option A) | Organisation administrators, through a pull request                                                         | Ruleset insights, audit log            |
-| Repository ruleset (Option B)   | Repository admin role, through a pull request                                                               | Ruleset insights, audit log            |
-| A finding in a repository       | An exemption in `exemptions.yaml` (code-owner review, expiry date) or the dated baseline on the base branch | This repository's history              |
-| A check, organisation-wide      | `policy.yaml` (`mode: off` / `report`), reviewed by the Solution Architect                                  | This repository's history              |
+| Control                    | Who can bypass                                                                                              | Recorded where            |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------- |
+| Local hooks                | Anyone (`--no-verify`)                                                                                      | Nowhere                   |
+| A finding in a repository  | An exemption in `exemptions.yaml` (code-owner review, expiry date) or the dated baseline on the base branch | This repository's history |
+| A check, organisation-wide | `policy.yaml` (`mode: off` / `report`), reviewed by the Solution Architect                                  | This repository's history |
 
-## Checking it works
-
-On an opted-in repository, after setup:
-
-1. Open a pull request that adds an `AGENTS.md` containing a zero-width
-   space. The `qa / pull request checks` check fails with `BLOCK
-ai-config.content-lint`, and merging is blocked.
-2. Commit the same file with `--no-verify`: the local hook is skipped, and
-   the pull request check still fails.
-3. As a non-admin, try to merge anyway or change the ruleset: refused.
-4. Open the same pull request from a fork: the check fails at its first step
-   without running anything from the fork (forks are never trusted), so the
-   pull request stays unmergeable until a maintainer brings the change into a
-   branch of the repository.
+Suppressions inside the checked repository do not count: `gitleaks:allow`
+and `nosemgrep` comments, `.gitleaksignore` and `.semgrepignore` are ignored,
+and scanner configuration files from the change never reach the scan. An
+exemption in `exemptions.yaml` and the dated baseline are the only
+suppressions.

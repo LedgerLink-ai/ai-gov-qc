@@ -12,6 +12,14 @@ function messageText(f: EvaluatedFinding): string {
   return redact(f.fixHint ? `${f.message} Fix: ${f.fixHint}` : f.message);
 }
 
+/**
+ * A repository-relative path as a SARIF artifactLocation.uri (a relative URI
+ * reference): each segment percent-encoded, the "/" between them kept.
+ */
+export function sarifUri(path: string): string {
+  return path.split('/').map(encodeURIComponent).join('/');
+}
+
 /** SARIF 2.1.0: the one report format every caller reads (Technical Design 10.4). */
 export function toSarif(result: RunResult): object {
   const ran = new Set(result.checkRuns.filter((r) => r.status !== 'skipped').map((r) => r.checkId));
@@ -38,7 +46,7 @@ export function toSarif(result: RunResult): object {
       ? [
           {
             physicalLocation: {
-              artifactLocation: { uri: f.path },
+              artifactLocation: { uri: sarifUri(f.path) },
               ...(f.line ? { region: { startLine: f.line, ...(f.column ? { startColumn: f.column } : {}) } } : {}),
             },
           },
@@ -210,30 +218,52 @@ export function toJson(result: RunResult): object {
   });
 }
 
-export function toText(result: RunResult): string {
+/** What readers see first about a finding: its message's first sentence, at most 140 characters. */
+export function shortMessage(message: string): string {
+  const first =
+    message
+      .replace(/\s+/g, ' ')
+      .trim()
+      .split(/(?<=\.)\s/)[0] ?? '';
+  return first.length > 140 ? `${first.slice(0, 137)}...` : first;
+}
+
+/**
+ * The text report people read in a terminal or an IDE's git output (AIQC-88):
+ * per finding, its kind, check and place on one line, then the message, the
+ * fix and the rule ids each on their own line. Skipped checks are listed only
+ * with `verbose`; a check deferred to CI and an engine error always show.
+ */
+export function toText(result: RunResult, opts: { verbose?: boolean } = {}): string {
   const lines: string[] = [];
   lines.push(
     `qa ${result.engineVersion} | repo ${result.repo} | actor ${result.actor} | mode ${result.mode} | as of ${result.asOf}`,
   );
-  lines.push(`tags: ${result.tags.length > 0 ? result.tags.join(', ') : '(none)'} | files: ${result.files.length}`);
+  if (opts.verbose)
+    lines.push(`tags: ${result.tags.length > 0 ? result.tags.join(', ') : '(none)'} | files: ${result.files.length}`);
   const order = (f: EvaluatedFinding): number =>
     f.blocking ? 0 : f.level === 'error' ? 1 : f.level === 'warning' ? 2 : 3;
   const scopeOf = new Map(result.checkDefinitions.map((d) => [d.id, d.scope]));
+  const pad = '         ';
   for (const f of [...result.findings].sort((a, b) => order(a) - order(b))) {
     const label = f.blocking ? 'BLOCK ' : f.level === 'note' ? 'NOTE  ' : 'REPORT';
     const whole = scopeOf.get(f.checkId) === 'pr' ? '(pull request)' : '(commit)';
     const where = f.path ? `${f.path}${f.line ? `:${f.line}${f.column ? `:${f.column}` : ''}` : ''}` : whole;
     const ids = [...f.controls, ...f.rules].join(', ');
-    lines.push(`  ${label} ${f.checkId}  ${where}  ${f.message}${ids ? ` [${ids}]` : ''}`);
-    if (f.fixHint) lines.push(`         fix: ${f.fixHint}`);
-    if (f.suppressionNote) lines.push(`         ${f.suppressionNote}`);
+    lines.push(`  ${label} ${f.checkId}  ${where}`);
+    lines.push(`${pad}${f.message}`);
+    if (f.fixHint) lines.push(`${pad}fix: ${f.fixHint}`);
+    if (ids) lines.push(`${pad}rules: ${ids}`);
+    if (f.suppressionNote) lines.push(`${pad}${f.suppressionNote}`);
   }
   const count = (s: string): number => result.checkRuns.filter((r) => r.status === s).length;
-  lines.push(
-    `checks: ${count('passed')} passed, ${count('failed')} failed, ${count('skipped')} skipped, ${count('error')} errors`,
-  );
-  for (const r of result.checkRuns.filter((r) => r.status === 'skipped' || r.status === 'error')) {
-    lines.push(`  ${r.status === 'error' ? 'ERROR ' : 'skip  '} ${r.checkId}: ${r.reason ?? ''}`);
+  const deferred = (r: { status: string; reason?: string }): boolean =>
+    r.status === 'skipped' && (r.reason ?? '').includes('; runs in CI');
+  for (const r of result.checkRuns.filter(
+    (r) => r.status === 'error' || deferred(r) || (opts.verbose && r.status === 'skipped'),
+  )) {
+    const tag = r.status === 'error' ? 'ERROR ' : deferred(r) ? 'LATER ' : 'skip  ';
+    lines.push(`  ${tag} ${r.checkId}: ${r.reason ?? ''}`);
   }
   const s = summarise(result);
   const verdict =
@@ -242,8 +272,65 @@ export function toText(result: RunResult): string {
       : result.exitCode === 1
         ? `BLOCKED (${s.blocking} blocking)`
         : 'PASS';
-  lines.push(`result: ${verdict}`);
+  const notRun = count('skipped');
+  lines.push(
+    `result: ${verdict} | checks: ${count('passed')} passed, ${count('failed')} failed, ${notRun} not run here, ${count('error')} errors${notRun > 0 && !opts.verbose ? ' (--verbose lists them)' : ''}`,
+  );
   return redact(lines.join('\n'));
+}
+
+/** One blocking finding, as the hook's summary line names it. */
+export interface HookResultEntry {
+  check: string;
+  path?: string;
+  line?: number;
+  summary: string;
+}
+
+/** What one qa run reports to the git hook that started it (QA_HOOK_RESULT). */
+export interface HookResult {
+  exitCode: number;
+  blocking: HookResultEntry[];
+  errors: HookResultEntry[];
+}
+
+export function hookResultOf(result: RunResult): HookResult {
+  return {
+    exitCode: result.exitCode,
+    blocking: result.findings
+      .filter((f) => f.blocking)
+      .map((f) => ({
+        check: f.checkId,
+        ...(f.path ? { path: f.path } : {}),
+        ...(f.line ? { line: f.line } : {}),
+        summary: redact(shortMessage(f.message)),
+      })),
+    errors: result.checkRuns
+      .filter((r) => r.status === 'error')
+      .map((r) => ({ check: r.checkId, summary: redact(shortMessage(r.reason ?? 'could not run')) })),
+  };
+}
+
+/**
+ * Adds this run's result to the file the hook named. Several qa runs can share
+ * one hook (a repository's own configuration may call qa more than once), so
+ * their results are merged. Never throws: the summary is a convenience.
+ */
+export function appendHookResult(file: string, result: RunResult): void {
+  try {
+    let prior: HookResult = { exitCode: 0, blocking: [], errors: [] };
+    if (existsSync(file)) prior = JSON.parse(readFileSync(file, 'utf8')) as HookResult;
+    const now = hookResultOf(result);
+    const merged: HookResult = {
+      exitCode: Math.max(prior.exitCode, now.exitCode),
+      blocking: [...prior.blocking, ...now.blocking],
+      errors: [...prior.errors, ...now.errors],
+    };
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, JSON.stringify(merged));
+  } catch {
+    // the hook falls back to naming the failed hook
+  }
 }
 
 /**
@@ -302,9 +389,20 @@ export function readBaseline(root: string): Set<string> {
   return parseBaseline(readFileSync(file, 'utf8'));
 }
 
+/**
+ * The findings a baseline records: every finding except those an exemption
+ * covers. An exemption is dated; recording its findings in the baseline would
+ * keep them from blocking after the exemption expires.
+ */
+export function baselineFindings(result: RunResult): EvaluatedFinding[] {
+  // Only errors can block, so notes and warnings have nothing to baseline.
+  return result.findings.filter((f) => f.level === 'error' && f.suppressedBy !== 'exemption');
+}
+
 export function writeBaseline(root: string, result: RunResult): string {
   const file = join(root, BASELINE_FILE);
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, JSON.stringify(toSarif(result), null, 2) + '\n');
+  const recorded: RunResult = { ...result, findings: baselineFindings(result) };
+  writeFileSync(file, JSON.stringify(toSarif(recorded), null, 2) + '\n');
   return file;
 }

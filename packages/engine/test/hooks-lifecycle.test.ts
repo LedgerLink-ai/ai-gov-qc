@@ -8,8 +8,8 @@ import { allowlistedRepo, cliEnv, describeBuilt, HIDDEN, QA_BIN } from './cli-he
 
 // The git hook lifecycle as a developer meets it: hooks installed in a clone,
 // then commit (pre-commit, prepare-commit-msg) and push (pre-push), the block,
-// and --no-verify, the documented limitation of local hooks that the pull
-// request gate (qa-pr.yml) closes.
+// and --no-verify, the documented limitation of local hooks
+// (docs/ENFORCEMENT.md).
 
 const posix = (p: string): string => p.replace(/\\/g, '/');
 
@@ -72,7 +72,7 @@ describeBuilt('git hook lifecycle', () => {
     expect(git('log', '-1', '--format=%s').stdout.trim()).toBe('feat(LCORE-212): Add bounded retry');
   });
 
-  it('--no-verify skips the local hook (documented limitation; the pull request gate runs it again)', () => {
+  it('--no-verify skips the local hook (documented limitation of local hooks)', () => {
     const res = git('commit', '-q', '--no-verify', '-m', 'Add agent instructions');
     expect(res.status).toBe(0);
     expect(git('log', '-1', '--format=%s').stdout.trim()).toMatch(/Add agent instructions$/);

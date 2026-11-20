@@ -1,0 +1,7 @@
+const password = process.env.DB_PASSWORD;
+interface User {
+  password: string;
+  token?: string;
+}
+if (password.length < 8) throw new Error("short");
+const tokenizer = "bert-base-uncased";

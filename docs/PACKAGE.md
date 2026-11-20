@@ -50,6 +50,8 @@ On the push to `main`, `ci.yml` runs on Windows, macOS and Linux:
 
 When it passes, `release.yml` reads the version in `package.json`. If `v<version>` is not tagged yet, it tags the merged commit and publishes a GitHub release with the package that `ci.yml` built and tested, its SHA-256, install instructions, and the pull requests since the last release. A merge that leaves the version unchanged releases nothing (the run says so). A failed release is retried with **Re-run jobs** on its run. Actions are pinned to commit SHAs.
 
+**Provenance and immutability.** The release job signs a build provenance attestation; verify it as the pull request gate does, pinned to `release.yml` on `refs/heads/main` and to GitHub-hosted runners ([OPERATIONS.md](OPERATIONS.md#production-installation)). Releases up to v0.2.3 are not immutable (`immutable: false`); an administrator must enable release immutability for the repository ([OPERATIONS.md](OPERATIONS.md#releasing)), and release tags are protected by `config/github/repo-ruleset-release-tags.json`.
+
 **A path to the file must be absolute or start with `./`.** npm reads `out/ledgerlink-qa-0.2.1.tgz` as a GitHub `owner/repo` and fails with `Permission denied (publickey)`.
 
 **Every published package needs a new version.** npm caches packages by name and version, so a rebuilt `0.1.0` is not picked up by machines that installed `0.1.0` before.

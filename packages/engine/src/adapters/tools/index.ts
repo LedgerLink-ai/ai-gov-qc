@@ -20,6 +20,12 @@ export interface ToolAdapter {
    * so the runner can cache results per file.
    */
   run(ctx: RunContext, def: CheckDefinition, files: ChangedFile[]): Finding[] | Promise<Finding[]>;
+  /**
+   * Findings in the pull request's commits rather than its final files (for
+   * example a secret added and removed again). Runs only when the run has a
+   * pull request, even if no file changed, and is never cached.
+   */
+  history?(ctx: RunContext, def: CheckDefinition): Promise<Finding[]>;
 }
 
 export const TOOL_ADAPTERS: Record<string, ToolAdapter> = {

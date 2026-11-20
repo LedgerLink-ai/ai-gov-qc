@@ -1,0 +1,121 @@
+id: F17
+title: Credentials in any file - typed declarations, configuration, environment, shell, CI, code, XML, URLs, command lines, key files and long tokens (AIQC-89)
+repo: link_core
+actor: human
+as_of: 2027-01-08
+requires: [gitleaks]
+# Generated each run, so this repository holds no credential, not even split.
+values:
+  PASSWORD: { random: password, length: 16 }
+  ALNUM: { random: alnum, length: 24 }
+  # Longer than the 150 characters Gitleaks' generic rule stops at, with dots.
+  TOKEN: { random: alnum, parts: [100, 100, 100] }
+  # The shape of an AWS CodeArtifact token: a JWE of about 1,000 characters.
+  CODEARTIFACT_TOKEN: { random: base64url, prefix: 'eyJ2ZXIiOjEsImlzdSI6', parts: [88, 22, 16, 900, 22] }
+  KEY_FILE: { random: alnum, length: 200 }
+  # Letters only: a URL password that looks like a word must still be reported.
+  LETTERS: { random: letters, length: 20 }
+exact: true
+expect:
+  - check: secrets.gitleaks
+    path: .env
+    blocking: true
+  - check: secrets.gitleaks
+    path: config/app.yaml
+    blocking: true
+  - check: secrets.gitleaks
+    path: src/main/resources/application.properties
+    blocking: true
+  - check: secrets.gitleaks
+    path: .m2/settings.xml
+    blocking: true
+  - check: secrets.gitleaks
+    path: NuGet.Config
+    blocking: true
+  - check: secrets.gitleaks
+    path: docker-compose.yml
+    blocking: true
+  - check: secrets.gitleaks
+    path: Dockerfile
+    blocking: true
+  - check: secrets.gitleaks
+    path: scripts/deploy.sh
+    blocking: true
+  - check: secrets.gitleaks
+    path: scripts/call-api.sh
+    blocking: true
+  - check: secrets.gitleaks
+    path: scripts/backup.sh
+    blocking: true
+  - check: secrets.gitleaks
+    path: docs/setup.md
+    blocking: true
+  - check: secrets.gitleaks
+    path: app/settings.py
+    blocking: true
+  - check: secrets.gitleaks
+    path: appsettings.json
+    blocking: true
+  - check: secrets.gitleaks
+    path: src/Main.java
+    blocking: true
+  - check: secrets.gitleaks
+    path: config.json
+    blocking: true
+  - check: secrets.gitleaks
+    path: infra/prod.tfvars
+    blocking: true
+  - check: secrets.gitleaks
+    path: k8s/secret.yaml
+    blocking: true
+  - check: secrets.gitleaks
+    path: .npmrc
+    blocking: true
+  - check: secrets.gitleaks
+    path: src/client.py
+    blocking: true
+  - check: secrets.gitleaks
+    path: .github/workflows/deploy.yml
+    blocking: true
+  - check: secrets.gitleaks
+    path: setup.ps1
+    blocking: true
+  - check: secrets.gitleaks
+    path: .pypirc
+    blocking: true
+  - check: secrets.gitleaks
+    path: .netrc
+    blocking: true
+  - check: secrets.gitleaks
+    path: .git-credentials
+    blocking: true
+  - check: secrets.gitleaks
+    path: keys/id_ed25519
+    blocking: true
+  - check: secrets.gitleaks
+    path: android/release.jks
+    blocking: true
+  - check: secrets.gitleaks
+    path: helm/values.yaml
+    blocking: true
+  - check: secrets.gitleaks
+    path: src/db.ts
+    blocking: true
+  - check: secrets.gitleaks
+    path: src/fetch.js
+    blocking: true
+  - check: secrets.gitleaks
+    path: .yarnrc.yml
+    blocking: true
+  - check: secrets.gitleaks
+    path: src/config.rs
+    blocking: true
+  - check: secrets.gitleaks
+    path: src/token.ts
+    blocking: true
+  - check: secrets.gitleaks
+    path: src/config.go
+    blocking: true
+  - check: secrets.gitleaks
+    path: config/cache.env
+    blocking: true

@@ -6,6 +6,11 @@
 version: 1
 updated: 2026-10-22
 
+# trailer_aliases: how a Co-authored-by line is recognised as this tool (it then
+# becomes Assisted-by, and the pull request gets the agent rules). An alias with
+# an @ must equal the co-author's address exactly; any other alias must be a
+# whole word of the co-author's name, or the login of a GitHub no-reply address
+# (<id>+<login>@users.noreply.github.com). Matching ignores case.
 tools:
   - id: claude-code
     name: Claude Code
@@ -58,6 +63,82 @@ tools:
     review_by: 2026-11-06
     trailer_aliases: ['codex']
     profile:
+      rule_file: AGENTS.md
+
+  # The tools below are newly added so their rule files, MCP configs and
+  # protected-path reviews are governed the same as the four above (AIQC
+  # market-readiness pass). Their trailer_aliases are left unset: nobody has
+  # yet confirmed the exact Co-authored-by string each tool writes, and a
+  # wrong alias is worse than none (R14-6 requires an exact match). Add the
+  # real alias once confirmed from an actual commit, so its Co-authored-by
+  # line converts to Assisted-by.
+  - id: windsurf
+    name: Windsurf
+    vendor: Cognition
+    status: pending-inventory
+    tier: TBC
+    models: ['*']
+    owner: TBC
+    review_by: 2026-11-06
+    profile:
+      rule_file: .windsurfrules
+
+  - id: gemini-cli
+    name: Gemini CLI
+    vendor: Google
+    status: pending-inventory
+    tier: TBC
+    models: ['*']
+    owner: TBC
+    review_by: 2026-11-06
+    profile:
+      mcp_config: .gemini/settings.json
+      rule_file: GEMINI.md
+
+  - id: roo-code
+    name: Roo Code
+    vendor: Roo Code
+    status: pending-inventory
+    tier: TBC
+    models: ['*']
+    owner: TBC
+    review_by: 2026-11-06
+    profile:
+      mcp_config: .roo/mcp.json
+      rule_file: .roomodes
+
+  - id: amazon-q
+    name: Amazon Q Developer
+    vendor: Amazon
+    status: pending-inventory
+    tier: TBC
+    models: ['*']
+    owner: TBC
+    review_by: 2026-11-06
+    profile:
+      mcp_config: .amazonq/mcp.json
+
+  - id: cline
+    name: Cline
+    vendor: Cline
+    status: pending-inventory
+    tier: TBC
+    models: ['*']
+    owner: TBC
+    review_by: 2026-11-06
+    profile:
+      rule_file: .clinerules
+
+  - id: opencode
+    name: opencode
+    vendor: SST
+    status: pending-inventory
+    tier: TBC
+    models: ['*']
+    owner: TBC
+    review_by: 2026-11-06
+    profile:
+      mcp_config: opencode.json
       rule_file: AGENTS.md
 
 # Agent identities that commit or open pull requests (CAP-11 C11-3, CAP-15).

@@ -20,11 +20,12 @@
           "kind": { "enum": ["native", "tool"] },
           "tool": { "type": "string", "minLength": 1 },
           "stage": { "enum": [0, 1, 2, 3] },
-          "scope": { "enum": ["file", "branch", "commit", "pr", "release"] },
+          "scope": { "enum": ["file", "branch", "commit", "pr"] },
           "tags": {
             "oneOf": [{ "const": "all" }, { "type": "array", "minItems": 1, "items": { "type": "string" } }]
           },
           "extra_globs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "include_deleted": { "type": "boolean" },
           "controls": { "type": "array", "items": { "type": "string", "pattern": "^C\\d{2}-\\d+$" } },
           "rules": { "type": "array", "items": { "type": "string", "pattern": "^R\\d{2}-\\d+$" } },
           "source": { "type": "string", "minLength": 1 }

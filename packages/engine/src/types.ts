@@ -2,7 +2,7 @@ export type Tag = string;
 export type Level = 'error' | 'warning' | 'note';
 export type Actor = 'human' | 'agent' | 'ci';
 export type RunMode = 'local' | 'ci';
-export type Scope = 'file' | 'branch' | 'commit' | 'pr' | 'release';
+export type Scope = 'file' | 'branch' | 'commit' | 'pr';
 export type PolicyMode = 'off' | 'report' | 'block';
 export type RegistryStatus = 'approved' | 'pending-inventory' | 'blocked' | 'retired';
 
@@ -25,6 +25,8 @@ export interface McpServerEntry {
   id: string;
   status: RegistryStatus;
   owner: string;
+  /** Once past, a `pending-inventory` entry is treated as `not-approved` instead of staying a warning forever. */
+  review_by?: string;
   match: { package?: string; versions?: string[]; url?: string; command?: string };
 }
 
@@ -58,6 +60,8 @@ export interface CheckDefinition {
   scope: Scope;
   tags: 'all' | Tag[];
   extra_globs?: string[];
+  /** The check looks at paths, not contents, so deleted files apply to it too. */
+  include_deleted?: boolean;
   controls: string[];
   rules: string[];
   /** Where a check comes from when no capability control or rule covers it. */
@@ -68,7 +72,7 @@ export interface Policy {
   version: 1;
   defaults: { mode: PolicyMode };
   local: { time_budget_ms: number; prepush_time_budget_ms?: number; prepr_time_budget_ms?: number };
-  /** Limits for the pull request checks (stage 3: "qa prepr" and the PR gate). */
+  /** Limits for the pull request checks (stage 3: "qa prepr"). */
   pr?: PrPolicy;
   /** Ticket-based branch names and commit messages (AIQC-87). */
   conventions?: ConventionsPolicy;
@@ -180,13 +184,28 @@ export interface ChangedFile {
   /** Repository-relative, forward slashes. */
   path: string;
   status: 'A' | 'M' | 'D' | 'R';
+  /**
+   * For a rename (status R), the path the file moved away from. Moving a file
+   * away removes it from its old path, which matters for protected paths.
+   */
+  oldPath?: string;
 }
 
 export interface FileSource {
   readonly kind: 'index' | 'worktree' | 'dir' | 'commit';
   readonly root: string;
-  /** Text content, or undefined for deleted, missing or binary files. */
+  /**
+   * Text content (UTF-8, or UTF-16 with a byte order mark; a UTF-8 byte order
+   * mark is removed), or undefined for deleted, missing, binary or too large
+   * files.
+   */
   read(path: string): string | undefined;
+  /**
+   * The raw bytes, or undefined for deleted or missing files. Lets a scanner
+   * see a file that is not text, and lets the runner tell a file that exists
+   * but cannot be read as text from one that is not there.
+   */
+  readBytes?(path: string): Buffer | undefined;
 }
 
 export interface RunContext {
@@ -204,7 +223,7 @@ export interface RunContext {
   commitMessage?: string;
   /** The branch being committed to; set by the pre-commit and commit-msg hooks, or --branch. */
   branch?: string;
-  /** The pull request being prepared; only in a "qa prepr" run or the PR gate. */
+  /** The pull request being prepared; only in a "qa prepr" run. */
   pr?: PrInfo;
   /** Files this check should look at (by its tags and extra globs), excluding deletions. */
   filesFor(def: CheckDefinition): ChangedFile[];

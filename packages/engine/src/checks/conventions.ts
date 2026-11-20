@@ -17,15 +17,38 @@ import { messageLines } from './commit-trailer';
 //   branch.ticket        the current branch carries a valid ticket key (pre-commit)
 //   commit.message       the subject follows the convention and names the
 //                        branch's ticket (commit-msg)
-//   pr.commit-messages   the same for every commit of a pull request (qa prepr
-//                        and the PR gate, where local hooks cannot be skipped)
+//   pr.commit-messages   the same for every commit of a pull request (qa prepr,
+//                        including commits made with --no-verify)
 //
 // The key is read from the branch, never trusted from the message.
 
 const MAX_QUOTED = 120;
-/** Subjects git writes itself: merges, fixups, reverts. */
-const GIT_SUBJECT =
-  /^(?:Merge (?:branch|remote-tracking branch|pull request|tag|commit) |(?:fixup|squash|amend)! |Revert ")/;
+/** The names in a merge subject: 'a', or 'a' and 'b', or 'a', 'b' and 'c'. */
+const MERGED = String.raw`(?:branch(?:es)?|remote-tracking branch(?:es)?|tags?|commits?) '[^'\r\n]+'(?:(?:, | and )'[^'\r\n]+')*`;
+/**
+ * Subjects git (or GitHub, GitLab) writes for a merge, matched in full rather
+ * than by prefix, so a hand-typed subject ("Merge branch 'main': add a
+ * backdoor") cannot borrow the exemption for an ordinary commit:
+ *   Merge branch 'a' [of <url>] [into <branch>]   git merge, git pull
+ *   Merge branches 'a' and 'b'                    octopus merges
+ *   Merge remote-tracking branch 'origin/a'       also tag 'v1', commit 'abc1234'
+ *   Merge https://host/repo                       git pull <url> without a branch
+ *   Merge pull request #12 from org/branch        GitHub
+ *   Merge branch 'a' into 'main'                  GitLab
+ */
+const GIT_SUBJECT = new RegExp(
+  String.raw`^Merge (?:${MERGED}(?:, ${MERGED})*(?: of \S+)?|(?:https?|ssh|git|file)://\S+|pull request #\d+ from \S+)(?: into \S+)?$`,
+);
+/** Rebase-autosquash markers: never meant to survive to final history. */
+const AUTOSQUASH_SUBJECT = /^(?:fixup|squash|amend)! /;
+/** What git revert writes: Revert "<subject>", or Reapply "<subject>" when reverting a revert (git 2.43+). */
+const REVERT_SUBJECT = /^(?:Revert|Reapply) "/;
+/**
+ * The line git revert always adds, with the full commit id (SHA-1 or SHA-256);
+ * a hand-typed `Revert "..."` without it is not exempt. Reverting a merge
+ * (and GitHub's Revert button on a merged pull request) ends it ", reversing".
+ */
+const REVERT_TRAILER = /^This reverts commit (?:[0-9a-f]{40}|[0-9a-f]{64})(?:\.|, reversing)$/;
 
 const quote = (s: string): string => {
   const one = s.replace(/\s+/g, ' ').trim();
@@ -78,7 +101,9 @@ export function checkCommitMessage(
   branch?: BranchAnalysis,
 ): Finding[] {
   const subject = messageLines(message).find((l) => l !== '');
-  if (subject === undefined || GIT_SUBJECT.test(subject)) return [];
+  if (subject === undefined) return [];
+  const isRealRevert = REVERT_SUBJECT.test(subject) && messageLines(message).some((l) => REVERT_TRAILER.test(l));
+  if (GIT_SUBJECT.test(subject) || AUTOSQUASH_SUBJECT.test(subject) || isRealRevert) return [];
   const valid = branch?.ok ? branch : undefined;
   const expected = valid ? `${subjectPrefix(conv, valid.commitType, valid.ticket)}<description>` : subjectForm(conv);
   const finding = (ruleId: string, text: string, fixHint: string): Finding => ({

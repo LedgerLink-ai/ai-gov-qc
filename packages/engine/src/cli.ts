@@ -4,18 +4,21 @@ import { homedir } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { TOOL_ADAPTERS } from './adapters/tools';
 import { versionIn } from './adapters/tools/workdir';
-import { parseTrailerValue } from './checks/commit-trailer';
-import { NO_DEFAULT, prepareMessage } from './prepare-message';
+import { parseTrailerValue, useCommentString } from './checks/commit-trailer';
+import { gitCommentString, NO_DEFAULT, prepareMessage, replayState } from './prepare-message';
 import { clearCache, cacheDir, openCache } from './cache';
-import { loadAllowlist, loadConfig, locateConfig } from './config';
+import { canonicalRepoName, loadAllowlist, loadConfig, locateConfig } from './config';
 import { envMs } from './exec';
-import { configSourceProblem, gate, isWithin } from './gate';
-import { runConformance, unavailableTools } from './conform';
+import { configSourceProblem, gate, isConformanceRoot, isWithin } from './gate';
+import { conformExitCode, runConformance, unavailableTools } from './conform';
 import { createLogger, logger, parseLogSettings, setLogger } from './log';
-import { today } from './policy';
+import { isCalendarDate, today } from './policy';
+import { aiDeclaredCommits, ciCoverage } from './pr-gate';
 import { publishEvidence } from './publish';
 import { redact } from './redact';
 import {
+  appendHookResult,
+  baselineFindings,
   parseBaseline,
   readBaseline,
   summarise,
@@ -31,6 +34,7 @@ import { conventionsFor } from './conventions';
 import { run, type RunOptions } from './runner';
 import {
   assertRef,
+  assertRepoPath,
   commitSource,
   defaultBase,
   directorySource,
@@ -54,7 +58,7 @@ import {
   toPosix,
 } from './sources';
 import { globalHooksDir, hookScriptsInstalled, QA_HOOKS, runHook, sameDir } from './hooks';
-import { setup } from './setup';
+import { describeHooksPath, hooksPathSettings, setup } from './setup';
 import { resolveTags } from './tags';
 import { toolBinary } from './tools-home';
 import {
@@ -104,14 +108,16 @@ Usage:
   qa baseline   [selection] [options]   Record current findings in .qa/baseline.sarif (they then report, not block)
   qa rules      <path>... [options]     Tags, checks, controls and approvals for these paths
   qa validate   [--config <dir>]        Validate the registries and their cross-references
-  qa conform    [--config <dir>]        Run the conformance fixtures through the API and CLI paths
+  qa conform    [--config <dir>] [--require-all]
+                                        Run the conformance fixtures through the API and CLI paths;
+                                        --require-all fails on a skipped or pending fixture (CI)
   qa cache      clear | path            Remove or show the local scanner result cache
   qa version
 
 Selection (pick one):
   --staged              Staged changes (reads the index, i.e. exactly what will be committed)
   --base <ref>          Changes since the merge base with <ref> (what a pull request contains)
-  --files <a,b,...>     These files under --root
+  --files <a,b,...>     These files under --root (relative paths inside --root: no drive letters, no "..")
   --all                 Every file under --root
 
 Options:
@@ -127,6 +133,7 @@ Options:
                         (default: coverage/coverage-summary.json and */coverage/coverage-summary.json)
   --format <fmt>        text | json | sarif  (default: text)
   --quiet               Print nothing when there is nothing to report (used by the git hooks)
+  --verbose             Also list the checks that did not run here, and the run's tags and file count
   --out <dir>           Also write results.sarif and evidence.json here (CI default: <root>/.qa/out)
   --exclude <ids>       Comma-separated check ids to skip (reported as skipped; used by conformance)
   --config <dir>        Registry directory (default: $QA_CONFIG_DIR, the bundled snapshot, or this checkout).
@@ -155,10 +162,13 @@ Setup options:
 
 Execution gate: check, precommit, prepare-commit-msg, commit-msg, prepush, prepr, baseline, repo-tool and repo-script do
 nothing (exit 0, no output) unless the repository's origin remote is owned by the organisation and the repository
-is enabled in registry/repositories.yaml. In CI, an identity that cannot be verified is an error (exit 2), and
-so is configuration from --config or QA_CONFIG_DIR. "qa doctor" shows whether QA is enabled for the current
-repository. In CI the baseline is read from the pull request's base, so a pull request cannot baseline its own
-findings.
+is enabled in registry/repositories.yaml. The origin must be on github.com (ssh and scp-like remotes may also use
+ssh.github.com, or an SSH host alias that "ssh -G" resolves to them). In CI, an identity that cannot be verified is
+an error (exit 2) for commands run explicitly; the git hook paths (hook, prepare-commit-msg, commit-msg) skip
+instead. In GitHub Actions, --config, QA_CONFIG_DIR, --as-of, QA_AS_OF, --exclude, --mode local, --actor, QA_ACTOR
+and --repo are refused (exit 2). "qa doctor" shows whether QA is enabled for the current repository. In CI the
+baseline is read from the pull request's base, so a pull request cannot baseline its own findings; without --base
+the working tree's baseline is ignored.
 
 Environment:
   QA_ACTOR              human | agent | ci, as --actor
@@ -174,10 +184,14 @@ Environment:
   QA_PARALLELISM        As --parallel
   QA_NO_CACHE=1         As --no-cache; QA_CACHE_DIR moves the cache (default <QA_HOME>/cache)
   QA_LOG_FORMAT, QA_LOG_LEVEL   As --log-format, --log-level
+  QA_HOOK_OUTPUT        qa hook: stream (output as it runs, summary last; the default in a terminal) or
+                        buffer (summary line first, then the output; the default in an IDE)
   QA_REPORT_URL, QA_REPORT_TOKEN, QA_REPORT_REQUIRED=1
                         Central reporting; with QA_REPORT_REQUIRED=1 a failed upload is exit 2
   QA_PR_AUTHOR          In CI: the pull request author; an agent login from the AI registry runs the
-                        agent rules (default actor), anyone else the human rules
+                        agent rules (default actor), anyone else the human rules. qa prepr also runs the
+                        agent rules when a commit declares AI assistance (Assisted-by, or an AI
+                        Co-authored-by), unless --actor is given
 
 Exit codes: 0 pass, 1 blocking findings, 2 the engine could not run (treat as a failure).`;
 
@@ -213,12 +227,14 @@ const BOOLEAN_FLAGS = new Set([
   'all',
   'help',
   'quiet',
+  'verbose',
   'no-python',
   'no-gitleaks',
   'no-git-template',
   'no-global-hooks',
   'uninstall',
   'no-cache',
+  'require-all',
 ]);
 
 export function parseArgs(argv: string[]): { command: string; positionals: string[]; flags: Flags } {
@@ -299,6 +315,8 @@ function select(flags: Flags, defaultSelection?: 'staged'): Selection {
         .split(',')
         .map((f) => toPosix(f.trim()))
         .filter(Boolean)
+        // Paths inside --root only: never absolute, never climbing out with "..".
+        .map((path) => assertRepoPath(path))
         .map((path) => ({ path, status: existsSync(join(root, path)) ? ('M' as const) : ('D' as const) }));
       return { root, inGit, files, source: directorySource(root) };
     }
@@ -387,16 +405,56 @@ function baselineFor(sel: Selection, mode: RunMode): Set<string> {
     logger().info('baseline.source', { ref: at, file: BASELINE_FILE });
     return parseBaseline(text, `${BASELINE_FILE} at ${at.slice(0, 12)}`);
   }
+  // In CI without a base branch there is no baseline to trust: the working
+  // tree's copy is part of the change being checked. Conformance fixtures
+  // (loose temp folders) bring their own.
+  if (mode === 'ci' && !isConformanceRoot(sel.root, process.env)) {
+    if (existsSync(join(sel.root, BASELINE_FILE)))
+      logger().info('baseline.ignored', { file: BASELINE_FILE, reason: 'CI run without --base' });
+    return new Set<string>();
+  }
   return readBaseline(sel.root);
+}
+
+/**
+ * In GitHub Actions the run is the pull request gate: what it checks, as of
+ * when, for whom and in which mode is not the caller's to change. Returns the
+ * overrides that were given, which are refused there. Conformance fixtures
+ * (loose temp folders) are exempt.
+ */
+function actionsOverrides(flags: Flags, root: string): string[] {
+  if (process.env.GITHUB_ACTIONS !== 'true' || isConformanceRoot(root, process.env)) return [];
+  const given: Array<[boolean, string]> = [
+    [str(flags, 'as-of') !== undefined, '--as-of'],
+    [Boolean(process.env.QA_AS_OF), 'QA_AS_OF'],
+    [str(flags, 'exclude') !== undefined, '--exclude'],
+    [str(flags, 'mode') !== undefined && str(flags, 'mode') !== 'ci', '--mode ' + str(flags, 'mode')],
+    [str(flags, 'actor') !== undefined, '--actor'],
+    [Boolean(process.env.QA_ACTOR), 'QA_ACTOR'],
+    [str(flags, 'repo') !== undefined, '--repo'],
+  ];
+  return given.filter(([on]) => on).map(([, name]) => name);
 }
 
 function runOptions(flags: Flags, sel: Selection, extra: Partial<RunOptions> = {}): RunOptions {
   const config = loadConfig(str(flags, 'config'));
   const gitAvailable = tryGitRoot(sel.root) !== undefined;
   const msgFile = str(flags, 'commit-msg-file');
+  const refused = actionsOverrides(flags, sel.root);
+  if (refused.length > 0)
+    throw new InputError(
+      `${refused.join(', ')} not accepted in GitHub Actions; the pull request gate runs every check, in CI mode, as of today, for the actor and repository GitHub reports`,
+    );
+  const inActions = process.env.GITHUB_ACTIONS === 'true' && !isConformanceRoot(sel.root, process.env);
   const asOf = str(flags, 'as-of') ?? process.env.QA_AS_OF ?? today();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf)) throw new UsageError('--as-of (or QA_AS_OF) must be YYYY-MM-DD');
-  const mode = oneOf<RunMode>(str(flags, 'mode'), ['local', 'ci'], 'mode', process.env.CI ? 'ci' : 'local');
+  if (!isCalendarDate(asOf)) throw new UsageError('--as-of (or QA_AS_OF) must be a date, YYYY-MM-DD');
+  const mode = inActions
+    ? 'ci'
+    : oneOf<RunMode>(str(flags, 'mode'), ['local', 'ci'], 'mode', process.env.CI ? 'ci' : 'local');
+  // The allowlist's spelling, whatever case the origin URL uses; in Actions the
+  // name GitHub reports (the gate verified it), never the checkout's remote.
+  const actionsRepo = inActions ? process.env.GITHUB_REPOSITORY?.split('/')[1] : undefined;
+  const repoName = actionsRepo ?? str(flags, 'repo') ?? (gitAvailable ? gitRepoName(sel.root) : basename(sel.root));
   setGitTimeout(envMs('QA_GIT_TIMEOUT_MS') ?? config.policy.timeouts?.git_ms ?? 120_000);
   // The cache is a local convenience; CI always scans afresh.
   const useCache =
@@ -406,7 +464,7 @@ function runOptions(flags: Flags, sel: Selection, extra: Partial<RunOptions> = {
     config.policy.performance?.cache !== false;
   return {
     config,
-    repo: str(flags, 'repo') ?? (gitAvailable ? gitRepoName(sel.root) : basename(sel.root)),
+    repo: canonicalRepoName(config.repositories, repoName),
     sha: gitAvailable ? gitHeadSha(sel.root) : 'WORKTREE',
     root: sel.root,
     actor: resolveActor(flags, config),
@@ -439,7 +497,10 @@ async function runAndReport(opts: RunOptions, flags: Flags): Promise<number> {
   const log = logger();
   if (format === 'json') print(JSON.stringify(toJson(result), null, 2));
   else if (format === 'sarif') print(JSON.stringify(toSarif(result), null, 2));
-  else if (!flags.quiet || worthShowing(result)) print(toText(result));
+  else if (!flags.quiet || worthShowing(result)) print(toText(result, { verbose: Boolean(flags.verbose) }));
+  // "qa hook" asks for the blocking findings, to name the first one in its summary line.
+  const hookResult = process.env.QA_HOOK_RESULT;
+  if (hookResult) appendHookResult(hookResult, result);
   const out =
     str(flags, 'out') ?? (opts.mode === 'ci' && format === 'text' ? join(opts.root, '.qa', 'out') : undefined);
   if (out) {
@@ -493,6 +554,8 @@ async function commitMsg(positionals: string[], flags: Flags): Promise<number> {
   if (!file) throw new UsageError('qa commit-msg needs the commit message file');
   if (!existsSync(file)) throw new UsageError(`qa commit-msg: ${file} does not exist`);
   const root = rootOf(flags);
+  // Comment lines use the repository's core.commentChar; git drops them after this hook.
+  useCommentString(gitCommentString(root, readFileSync(file, 'utf8')));
   const sel: Selection = { root, inGit: true, files: [], source: indexSource(root) };
   const opts = runOptions({ ...flags, 'commit-msg-file': file }, sel, {
     stages: [0, 1],
@@ -562,6 +625,26 @@ async function prepr(flags: Flags): Promise<number> {
   };
   const opts = runOptions(flags, sel, { stages: [0, 1, 2, 3], pr });
   opts.timeBudgetMs = opts.config.policy.local.prepr_time_budget_ms;
+  // A pull request whose commits declare AI assistance (Assisted-by, or an AI
+  // Co-authored-by) gets the agent rules, whoever opened it. Only --actor
+  // chooses otherwise.
+  const declared = aiDeclaredCommits(pr.commits, opts.config.registry);
+  if (opts.actor === 'human' && str(flags, 'actor') === undefined && declared.length > 0) {
+    opts.actor = 'agent';
+    logger().info('actor.from-commits', { commits: declared.map((c) => c.sha.slice(0, 12)) });
+  }
+  // In CI, coverage counts only when this run produced it: a summary committed
+  // to the repository is the pull request's own claim.
+  if (opts.mode === 'ci') {
+    const { use, ignored } = ciCoverage(root, pr.coverage);
+    pr.coverage = use;
+    for (const c of ignored)
+      logger().warn(
+        'coverage.committed',
+        { file: c.file },
+        `${c.file} is committed to the repository, so it is not coverage produced in this run; it is ignored in CI`,
+      );
+  }
   if (!flags.quiet) {
     print(`qa prepr: ${pr.branch} into ${base}, ${pr.commits.length} commit(s), ${sel.files.length} file(s)`);
     const dirty = spawnSync('git', ['status', '--porcelain', '--untracked-files=no'], { cwd: root, encoding: 'utf8' });
@@ -605,13 +688,14 @@ function prepareCommitMsg(positionals: string[], flags: Flags): number {
     const result = prepareMessage({
       message,
       source: sourceArg ?? process.env.PRE_COMMIT_COMMIT_MSG_SOURCE ?? '',
-      // Not the branch being rebased: a rebase replays every commit through this
-      // hook, and its subjects (a teammate's too) must not be rewritten on the way.
-      // HEAD is detached then, which leaves the message as it is.
       branch: str(flags, 'branch') ?? gitBranch(root),
       assistedBy: assistedByDefault(root),
       registry,
       conventions,
+      comment: gitCommentString(root, message),
+      // A rebase, cherry-pick or revert replays every commit through this hook
+      // with source "message"; those messages (a teammate's too) are left as they are.
+      replaying: replayState(root),
     });
     if (result.message !== message) writeFileSync(file, result.message);
     for (const note of result.notes) print(`qa: ${note}`);
@@ -629,7 +713,8 @@ async function baseline(flags: Flags): Promise<number> {
     return 2;
   }
   const file = writeBaseline(opts.root, result);
-  print(`Baselined ${result.findings.length} finding(s) as of ${opts.asOf} in ${file}`);
+  // Exempted findings stay out: they block again when their exemption expires.
+  print(`Baselined ${baselineFindings(result).length} finding(s) as of ${opts.asOf} in ${file}`);
   return 0;
 }
 
@@ -725,23 +810,37 @@ function doctor(flags: Flags): number {
   );
   tool('semgrep', TOOL_ADAPTERS.semgrep.version(), false, 'fast rule set at pre-push; optional locally, always in CI');
 
-  // The global hooks connect every repository on the machine (hooks.ts).
-  const globalGet = spawnSync('git', ['config', '--global', '--get', 'core.hooksPath'], { encoding: 'utf8' });
-  const globalPath = globalGet.status === 0 ? globalGet.stdout.trim() : '';
+  // The global hooks connect every repository on the machine (hooks.ts). What
+  // counts is the core.hooksPath git actually uses (the last one it reads, in
+  // the system or global configuration or any file they include).
+  const hooksPaths = hooksPathSettings();
+  const effective = hooksPaths.at(-1);
   const hooksDir = globalHooksDir();
-  const globalHooks = globalPath !== '' && sameDir(globalPath, hooksDir) && hookScriptsInstalled(hooksDir);
-  if (globalHooks) row('ok', 'global hooks', `${hooksDir} connects the hooks in every repository`);
-  else if (globalPath && sameDir(globalPath, hooksDir))
+  const qaEffective = effective !== undefined && sameDir(effective.value, hooksDir);
+  const globalHooks = qaEffective && hookScriptsInstalled(hooksDir);
+  if (globalHooks && effective)
+    row(
+      'ok',
+      'global hooks',
+      `${hooksDir} connects the hooks in every repository (${effective.scope}, ${effective.origin})`,
+    );
+  else if (qaEffective && effective)
     row(
       'FAIL',
       'global hooks',
-      `core.hooksPath is ${globalPath}, but qa's scripts there are missing or from an older qa; run "qa setup"`,
+      `core.hooksPath is ${describeHooksPath(effective)}, but qa's scripts there are missing or from an older qa; run "qa setup"`,
     );
-  else if (globalPath)
+  else if (effective && hooksPaths.some((h) => sameDir(h.value, hooksDir)))
+    row(
+      'FAIL',
+      'global hooks',
+      `git uses core.hooksPath ${describeHooksPath(effective)}, which overrides qa's ${hooksDir}, so the qa hooks do not run; remove that setting`,
+    );
+  else if (effective)
     row(
       'WARN',
       'global hooks',
-      `core.hooksPath is "${globalPath}", not qa's, so each repository has to connect the hooks itself`,
+      `core.hooksPath is ${describeHooksPath(effective)}, not qa's, so each repository has to connect the hooks itself`,
     );
   else row('WARN', 'global hooks', 'not set up; run "qa setup" to connect the hooks in every repository');
 
@@ -906,7 +1005,7 @@ async function conform(flags: Flags): Promise<number> {
   print(
     `conformance: ${count('pass')} pass, ${count('fail')} fail, ${count('skip')} skipped, ${count('pending')} pending`,
   );
-  return count('fail') > 0 ? 1 : 0;
+  return conformExitCode(results, flags['require-all'] === true);
 }
 
 /**
@@ -1036,7 +1135,10 @@ export function windowsCommandLine(args: string[]): string {
       if (/^[\w@+=:,./\\-]+$/.test(a)) return a;
       if (/["%!\r\n\0]/.test(a))
         throw new InputError(`refusing the argument ${JSON.stringify(a.slice(0, 60))}: cmd.exe would interpret it`);
-      return `"${a}"`;
+      // A backslash run right before the closing quote must be doubled, or
+      // CommandLineToArgvW reads the trailing \" as an escaped literal quote
+      // instead of the argument's end (e.g. a directory path "C:\repo\").
+      return `"${a.replace(/\\+$/, (m) => m + m)}"`;
     })
     .join(' ');
 }
@@ -1057,12 +1159,18 @@ export function satisfies(installed: string, required: string): boolean {
 /** Commands that act on the repository they run in; the rest are diagnostics or work on this package. */
 const GATED = new Set(['check', 'precommit', 'prepare-commit-msg', 'commit-msg', 'prepush', 'prepr', 'baseline']);
 
+/** The commands git runs as hooks on a developer's machine: qa's own problems never block them. */
+const LOCAL_HOOK_COMMANDS = new Set(['hook', 'prepare-commit-msg', 'commit-msg']);
+
 /**
  * The execution gate (issue #8). Returns an exit code when the command must
  * not run here, else undefined. A repository that is not allowlisted is
- * skipped silently; an identity that cannot be verified in CI is an error.
+ * skipped silently; an identity that cannot be verified in CI is an error,
+ * except for a local git hook (localHook): CI set in a developer's shell does
+ * not make a commit fail closed. check, prepr and prepush run explicitly stay
+ * fail-closed in CI (SECURITY.md).
  */
-function gateExit(command: string, root: string, configDir?: string): number | undefined {
+function gateExit(command: string, root: string, configDir?: string, localHook = false): number | undefined {
   const log = logger();
   // The message hook never blocks a commit.
   const refused = command === 'prepare-commit-msg' ? 0 : 2;
@@ -1076,6 +1184,10 @@ function gateExit(command: string, root: string, configDir?: string): number | u
   if (decision.run) {
     log.info('gate.allowed', { command, repo: `${decision.repo.owner}/${decision.repo.name}`, config: located.origin });
     return undefined;
+  }
+  if ('failClosed' in decision && localHook) {
+    log.info('gate.skipped', { command, reason: decision.reason, local_hook: true });
+    return 0;
   }
   if ('failClosed' in decision) {
     log.error(
@@ -1091,9 +1203,11 @@ function gateExit(command: string, root: string, configDir?: string): number | u
 
 /**
  * "qa hook <name> [args]", called by the hooks "qa setup" installs for every
- * repository (hooks.ts). Its own problems never block a commit.
+ * repository (hooks.ts). Its own problems never block a commit, and the
+ * repository's own hook always runs. `refused`, when set, is the exit code the
+ * checks stop with instead of asking the gate (an incompatible qa version).
  */
-function hookCommand(args: string[]): number {
+function hookCommand(args: string[], refused?: number): number {
   const [name, ...rest] = args;
   if (!name || !(QA_HOOKS as readonly string[]).includes(name))
     throw new UsageError(`qa hook needs one of ${QA_HOOKS.join(', ')}${name ? `; got "${name}"` : ''}`);
@@ -1102,7 +1216,10 @@ function hookCommand(args: string[]): number {
 `);
   };
   try {
-    return runHook(name, rest, { gateExit: (command, root) => gateExit(command, root), warn });
+    return runHook(name, rest, {
+      gateExit: (command, root) => refused ?? gateExit(command, root, undefined, true),
+      warn,
+    });
   } catch (err) {
     warn(`the ${name} hook could not run (${(err as Error).message}); skipped. "qa doctor" shows what is wrong.`);
     return 0;
@@ -1136,15 +1253,25 @@ function configureLogging(argv: string[]): void {
 }
 
 export async function main(argv: string[]): Promise<number> {
+  // After "repo-tool", "repo-script" and "hook" every argument belongs to the
+  // tool or to git, also when the hooks put "--require <version>" first.
+  const lead = /^--require=/.test(argv[0] ?? '') ? 1 : argv[0] === '--require' ? 2 : 0;
   try {
-    // After "repo-tool", "repo-script" and "hook" every argument belongs to the
-    // tool or to git, also when the hooks put "--require <version>" first.
-    const lead = /^--require=/.test(argv[0] ?? '') ? 1 : argv[0] === '--require' ? 2 : 0;
     const passThrough = ['repo-tool', 'repo-script', 'hook'].includes(argv[lead] ?? '');
     configureLogging(passThrough ? argv.slice(0, lead) : argv);
   } catch (err) {
-    process.stderr.write(`qa: ${(err as Error).message}\n`);
-    return 2;
+    // A bad QA_LOG_LEVEL or QA_LOG_FORMAT never blocks a commit: the hooks log with the defaults.
+    if (!LOCAL_HOOK_COMMANDS.has(argv[lead] ?? '')) {
+      process.stderr.write(`qa: ${(err as Error).message}\n`);
+      return 2;
+    }
+    process.stderr.write(`qa: ${(err as Error).message}; using the default logging\n`);
+    setLogger(createLogger(parseLogSettings('text', 'warn')));
+    // The checks "qa hook" starts through pre-commit would stop on the same values.
+    if (argv[lead] === 'hook') {
+      delete process.env.QA_LOG_LEVEL;
+      delete process.env.QA_LOG_FORMAT;
+    }
   }
   try {
     // A repository's hooks call "qa --require <version> <command>", so a
@@ -1160,7 +1287,9 @@ export async function main(argv: string[]): Promise<number> {
           `qa: this repository needs qa ${required} (compatible versions); ${ENGINE_VERSION} is installed.\n` +
             `Install it: npm install -g @ledgerlink/qa@${required}  (or the .tgz from your team's release)\n`,
         );
-        // The message hook never blocks a commit, not even for this.
+        // The message hook never blocks a commit, not even for this. Through
+        // "qa hook", the repository's own hook still runs.
+        if (argv[0] === 'hook') return hookCommand(argv.slice(1), argv[1] === 'prepare-commit-msg' ? 0 : 2);
         return argv[0] === 'prepare-commit-msg' ? 0 : 2;
       }
     }
@@ -1178,7 +1307,7 @@ export async function main(argv: string[]): Promise<number> {
       return 0;
     }
     if (GATED.has(command)) {
-      const skipped = gateExit(command, rootOf(flags), str(flags, 'config'));
+      const skipped = gateExit(command, rootOf(flags), str(flags, 'config'), LOCAL_HOOK_COMMANDS.has(command));
       if (skipped !== undefined) return skipped;
     }
     switch (command) {

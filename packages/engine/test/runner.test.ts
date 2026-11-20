@@ -36,8 +36,10 @@ describe('run', () => {
     expect((await run(options(hidden))).exitCode).toBe(1);
     const early = await run(options(hidden, { asOf: '2026-11-01' }));
     expect(early.exitCode).toBe(0);
-    expect(early.findings).toHaveLength(1);
-    expect(early.findings[0].blocking).toBe(false);
+    // AGENTS.md is also a protected path now, which adds a code-owner note.
+    const lint = early.findings.filter((f) => f.checkId === 'ai-config.content-lint');
+    expect(lint).toHaveLength(1);
+    expect(lint[0].blocking).toBe(false);
   });
 
   it('does not block a finding that is in the baseline', async () => {
