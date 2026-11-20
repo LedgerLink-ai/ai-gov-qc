@@ -8,8 +8,7 @@ import { branchFindings, conventions } from './conventions';
 // pull request is opened. Limits come from the `pr` section of policy.yaml.
 
 const DEFAULT_PR_POLICY: PrPolicy = {
-  diff_warn_lines: 400,
-  diff_max_lines: 1000,
+  diff_warn_lines: 1000,
   diff_ignore: ['**/yarn.lock', '**/package-lock.json', '**/pnpm-lock.yaml', '**/*.snap'],
   coverage_min_lines: 80,
 };
@@ -90,8 +89,8 @@ export function prDiffSize(ctx: RunContext, def: CheckDefinition): Finding[] {
     fixHint: 'Split it into smaller pull requests that can be reviewed and reverted on their own.',
     fingerprintBasis: `${ruleId}:${ctx.pr?.branch}`,
   });
-  if (lines > policy.diff_max_lines)
-    return [finding('too-large', 'error', `The pull request has ${summary}; the limit is ${policy.diff_max_lines}.`)];
+  // Size is advice, never a reason to block: a large pull request only gets a
+  // warning, whatever the check's mode.
   if (lines > policy.diff_warn_lines)
     return [finding('large', 'warning', `The pull request has ${summary}; aim for under ${policy.diff_warn_lines}.`)];
   return [];

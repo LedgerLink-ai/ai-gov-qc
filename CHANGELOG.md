@@ -315,6 +315,15 @@ Docs
   needing that tool will not run on commits and pushes until it is fixed.
   The warning is not shown when the hooks themselves failed to install.
 
+### Pull request size is a warning only
+
+- `pr.diff-size` warns above 1,000 changed lines (was 400) and never blocks:
+  the error above 1,000 lines (`too-large`) is gone, so switching the check to
+  block mode can no longer stop a pull request for its size. Lockfiles and
+  snapshots are still not counted.
+- `policy.yaml` drops `pr.diff_max_lines`; a policy that still sets it fails
+  `qa validate`. Remove the key and set `pr.diff_warn_lines` instead.
+
 ## 0.2.3
 
 Upgrading from 0.2.2

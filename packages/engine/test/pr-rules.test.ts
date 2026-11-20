@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { run } from '../src/runner';
 import { gitBranch, gitRangeCommits, gitRangeDiffStat } from '../src/sources';
 import type { PrInfo } from '../src/types';
-import { options } from './helpers';
+import { config, options } from './helpers';
 
 const GOOD = 'feat(LD-480): add refund key\n\nAssisted-by: Cursor, gpt-5, 1.7.0\n';
 
@@ -66,9 +66,20 @@ describe('pull request checks (stage 3)', () => {
     expect(result.exitCode).toBe(0);
   });
 
-  it('report a large pull request, without counting lockfiles', async () => {
+  it('warn about a large pull request, never block, and not count lockfiles', async () => {
     const big = [{ path: 'src/a.ts', added: 900, deleted: 200, binary: false }];
-    expect(await prFindings(pr({ diff: big }))).toEqual([['pr.diff-size', 'too-large', false]]);
+    expect(await prFindings(pr({ diff: big }))).toEqual([['pr.diff-size', 'large', false]]);
+    const huge = [{ path: 'src/a.ts', added: 9000, deleted: 2000, binary: false }];
+    const base = config();
+    const blockMode = {
+      ...base,
+      policy: { ...base.policy, checks: { ...base.policy.checks, 'pr.diff-size': { mode: 'block' as const } } },
+    };
+    const result = await run(options({}, { config: blockMode, pr: pr({ diff: huge }), stages: [3] }));
+    const size = result.findings.filter((f) => f.checkId === 'pr.diff-size');
+    expect(size.map((f) => [f.ruleId, f.level, f.blocking])).toEqual([['large', 'warning', false]]);
+    const atLimit = [{ path: 'src/a.ts', added: 600, deleted: 400, binary: false }];
+    expect(await prFindings(pr({ diff: atLimit }))).toEqual([]);
     const lock = [
       { path: 'src/a.ts', added: 100, deleted: 0, binary: false },
       { path: 'yarn.lock', added: 5000, deleted: 3000, binary: false },

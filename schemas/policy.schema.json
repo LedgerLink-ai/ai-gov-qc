@@ -26,10 +26,9 @@
     "pr": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["diff_warn_lines", "diff_max_lines", "diff_ignore", "coverage_min_lines"],
+      "required": ["diff_warn_lines", "diff_ignore", "coverage_min_lines"],
       "properties": {
         "diff_warn_lines": { "type": "integer", "minimum": 1 },
-        "diff_max_lines": { "type": "integer", "minimum": 1 },
         "diff_ignore": { "type": "array", "items": { "type": "string", "minLength": 1 } },
         "coverage_min_lines": { "type": "number", "minimum": 0, "maximum": 100 }
       }
