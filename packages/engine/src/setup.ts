@@ -542,9 +542,18 @@ export async function setup(config: Config, opts: SetupOptions, print: (s: strin
 
   const pythonOk = opts.python ? setupPython(config, pins, row) : true;
   if (opts.gitleaks && pins.gitleaks) await setupGitleaks(config, pins.gitleaks, opts, row);
-  if (opts.globalHooks ?? true) setupGlobalHooks(row);
+  const problemsBeforeHooks = problems;
+  let hooksInstalled = false;
+  if (opts.globalHooks ?? true) hooksInstalled = setupGlobalHooks(row);
   else if (opts.gitTemplate && pythonOk) setupGitTemplate(row);
   pathAdvice(row);
+  if (problemsBeforeHooks > 0 && hooksInstalled) {
+    row(
+      'WARN',
+      'hooks',
+      'installed, but the checks that need a tool marked FAIL above will not run on your commits and pushes until it is fixed and "qa setup" is run again',
+    );
+  }
   print(
     problems > 0 ? `result: NOT DONE (${problems} problem(s))` : 'result: DONE. Check a repository with: qa doctor',
   );

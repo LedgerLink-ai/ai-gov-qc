@@ -57,6 +57,7 @@
         "id": { "$ref": "#/definitions/id" },
         "status": { "$ref": "#/definitions/status" },
         "owner": { "type": "string" },
+        "review_by": { "$ref": "#/definitions/date" },
         "match": {
           "type": "object",
           "additionalProperties": false,
