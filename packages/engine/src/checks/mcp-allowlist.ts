@@ -65,7 +65,30 @@ export function stripJsonc(text: string): string {
       out += ch;
     }
   }
-  return out.replace(/,(\s*[}\]])/g, '$1');
+  return dropTrailingCommas(out);
+}
+
+/** Drops a comma followed only by whitespace and "}" or "]", outside strings ("a,]" in a value stays). */
+function dropTrailingCommas(text: string): string {
+  let out = '';
+  let inString = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      out += ch;
+      if (ch === '\\') out += text[++i] ?? '';
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === ',') {
+      let j = i + 1;
+      while (j < text.length && /\s/.test(text[j])) j++;
+      if (text[j] === '}' || text[j] === ']') continue;
+    }
+    out += ch;
+  }
+  return out;
 }
 
 export function parsePackageSpec(spec: string): { name: string; version?: string } {

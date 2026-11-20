@@ -323,3 +323,64 @@ describe('runHook: never runs itself twice', () => {
     expect(ownRan()).toBe(false);
   });
 });
+
+describe('runHook: the rarer ways qa itself can fail', () => {
+  it('lets the commit through when the default configuration cannot be staged', () => {
+    // <git dir>/ledgerlink-qa is a file, so the configuration cannot be written under it.
+    writeFileSync(join(repo, '.git', 'ledgerlink-qa'), 'in the way');
+    fakePreCommit({ exit: 1 });
+    const r = hook('pre-commit', optedIn);
+    expect(r.status).toBe(0);
+    expect(r.warnings.join('\n')).toMatch(/the checks were skipped\. Reinstall qa\./);
+    expect(preCommitRan()).toBe(false);
+  });
+
+  it('still runs the checks, with a warning, when the qa launcher cannot be written', () => {
+    // The qa home is a file, so <home>/shims cannot be made.
+    writeFileSync(join(root, 'home-file'), '');
+    process.env.QA_HOME = join(root, 'home-file');
+    fakePreCommit({ exit: 1 });
+    const r = hook('pre-commit', optedIn);
+    expect(r.warnings.join('\n')).toMatch(/could not write the qa launcher for pre-commit .*"qa" must be on PATH/);
+    expect(preCommitRan()).toBe(true);
+    expect(r.status).toBe(1);
+  });
+
+  it('lets the commit through when pre-commit exists but cannot be started', () => {
+    const notAProgram = join(root, 'pre-commit.txt');
+    writeFileSync(notAProgram, 'not a program');
+    process.env.QA_PRE_COMMIT_BIN = notAProgram;
+    const r = hook('pre-commit', optedIn);
+    expect(r.status).toBe(0);
+    expect(r.warnings.join('\n')).toMatch(/pre-commit could not run \(.+\), so the checks were skipped here/);
+  });
+
+  it('does not ask the gate in a bare repository', () => {
+    const bare = join(root, 'bare.git');
+    execFileSync('git', ['init', '-q', '--bare', bare], {
+      env: { ...process.env, GIT_CONFIG_GLOBAL: join(root, 'gitconfig'), GIT_CONFIG_NOSYSTEM: '1' },
+    });
+    execFileSync('git', ['config', 'core.hooksPath', join(root, 'global-hooks')], { cwd: bare });
+    let gateCalled = false;
+    const r = hook('pre-push', () => ((gateCalled = true), undefined), { cwd: bare, stdin: () => Buffer.alloc(0) });
+    expect(r.status).toBe(0);
+    expect(gateCalled).toBe(false);
+  });
+
+  it('in a terminal (stream mode), puts the summary last, after the streamed output', () => {
+    fakePreCommit({ exit: 1, print: 'eslint........Failed\n' });
+    const r = hook('pre-commit', optedIn, { output: 'stream' });
+    expect(r.status).toBe(1);
+    // The output itself went straight to the terminal; only the summary is written.
+    expect(r.out).toBe('\nqa: commit blocked. Details above.\n');
+  });
+
+  it('names pre-commit itself when it crashed before running any hook', () => {
+    fakePreCommit({ exit: 3, print: 'An unexpected error has occurred: CalledProcessError: command failed\n' });
+    const r = hook('pre-commit', optedIn);
+    expect(r.status).toBe(3);
+    expect(r.out.split('\n')[0]).toBe(
+      'qa: commit blocked by pre-commit itself, which stopped with CalledProcessError. Full details are in the git output.',
+    );
+  });
+});

@@ -36,6 +36,10 @@ function blockingConfig(): string {
     cpSync(join(CONFIG_DIR, entry), join(dir, entry), { recursive: true });
   const policy = parse(readFileSync(join(CONFIG_DIR, 'policy.yaml'), 'utf8'));
   for (const id of ['branch.ticket', 'commit.message']) policy.checks[id] = { mode: 'block' };
+  // These tests are about the conventions, not the time budget: on a loaded
+  // machine gitleaks alone can use the 10 s pre-commit budget, and the checks
+  // after it are then deferred to CI ("LATER"), so nothing would block.
+  policy.local.time_budget_ms = 600_000;
   writeFileSync(join(dir, 'policy.yaml'), stringify(policy));
   return dir;
 }

@@ -25,8 +25,18 @@ Running list of issues found in code review, to track until fixed. Check items o
 
 - [ ] Confirm `.gitignore` under `ai-config` in `path-tags.yaml` is deliberate (forces code-owner review on every `.gitignore` edit).
 - [ ] Confirm `secrets.gitleaks`/`sast.semgrep` already being in block mode (dates already passed as of 2026-11-20) is the intended current production state.
-- [ ] Narrow `config/semgrep/money-types.yml` patterns (field-name regex, bare `Number($X)`) to reduce false positives.
+- [ ] Narrow `config/semgrep/money-types.yml` patterns (field-name regex, bare `Number($X)`) to reduce false positives. **Decision needed, not done**: it trades missed money bugs for less noise on a C16-1 control, and the rules cannot be verified without Semgrep (fixture F12 needs it). Example false positives today: `totalPages: number`, `feedback: number` (`feew*`).
 - [ ] Confirm `strict_required_status_checks_policy: false` in the GitHub repo rulesets (`config/github/repo-ruleset-{main,dev}.json`) is intentional.
-- [ ] Reuse `exec.ts`'s `killSignal`/process-group handling in `setup.ts`'s local `run()` helper.
-- [ ] Dedupe `removeIgnoreFiles` (currently duplicated in `gitleaks.ts` and `semgrep.ts`) into `workdir.ts`.
-- [ ] Scope `mcp-allowlist.ts`'s `stripJsonc` trailing-comma regex to avoid touching string literal contents.
+- [x] Reuse `exec.ts`'s process-tree handling in `setup.ts`: setup now runs programs through `runProcess` (a timeout stops pip and everything it started), behind an injectable `Runner` so the Python and gitleaks install paths are unit-tested.
+- [x] Dedupe `removeIgnoreFiles` into `workdir.ts` (`removeFilesNamed`); both adapters call it. Direct test added: it is a second line of defense behind `isScannerControlFile`, so no flow reached it in tests before.
+- [x] `stripJsonc` drops trailing commas with a string-aware pass; `,]`/`,}` inside a string value are kept (regression tests added).
+
+## Test and verification pass (2026-11-20)
+
+Coverage was concentrated in the checks; the code that runs on developers' machines had little direct testing. Added: `run-hook.test.ts`, `setup-cli.test.ts`, `setup-tools.test.ts`, `cli-commands.test.ts`, and tests in `security.test.ts` and `mcp-allowlist.test.ts`. Each fix and new test was checked by breaking the code it covers (mutation) and confirming a test fails.
+
+- [x] `qa setup` reported the global hooks connected (and set `core.hooksPath`) while a non-qa file in `~/.ledgerlink-qa/hooks` meant git ran that file instead of qa: no checks ran. Now FAIL, naming the file, and `core.hooksPath` is left unset.
+- [x] `qa prepare-commit-msg` / `qa commit-msg` exited 2 (git refuses the commit) on a configuration qa cannot find or read, contrary to `LOCAL_HOOK_COMMANDS` ("qa's own problems never block them"). Only reachable when a repository calls them directly; the global hooks already failed open. Now warn and exit 0.
+- [x] `requirementProblems` accepted a `--hash` that was only in a comment, or longer than 64 hex characters.
+- [x] `branch-commit-cli.test.ts` failed under load: the 10 s pre-commit budget (`local.time_budget_ms`) ran out on gitleaks, so the conventions checks were deferred to CI and nothing blocked. The test now sets a large budget.
+- [ ] **Decision**: a slow scanner can use the whole pre-commit budget, so millisecond native checks after it (`branch.ticket`, `paths.protected`) are deferred to CI on a slow or busy machine. Consider exempting native checks from the budget.

@@ -8,6 +8,8 @@ import { windowsPathProgram } from '../src/tools-home';
 import { assertSafeUrl } from '../src/net';
 import { parseBaseline } from '../src/report';
 import { requirementProblems } from '../src/setup';
+import { removeIgnoreFiles as removeGitleaksIgnores } from '../src/adapters/tools/gitleaks';
+import { removeIgnoreFiles as removeSemgrepIgnores } from '../src/adapters/tools/semgrep';
 import { assertRef } from '../src/sources';
 import { CONFIG_DIR, config } from './helpers';
 
@@ -210,6 +212,19 @@ describe('pinned dependencies and hook versions', () => {
     expect(requirementProblems('requests==1.0.0\n', {})).toEqual(['requests has no --hash']);
   });
 
+  it('a hash only in a comment, or not exactly 64 hex characters, is no hash', () => {
+    const h = 'a'.repeat(64);
+    expect(requirementProblems(`requests==1.0.0 \\\n    --hash=sha256:${h}\n`, {})).toEqual([]);
+    expect(requirementProblems(`requests==1.0.0\n    # --hash=sha256:${h}\n`, {})).toEqual(['requests has no --hash']);
+    expect(requirementProblems(`requests==1.0.0  # --hash=sha256:${h}\n`, {})).toEqual(['requests has no --hash']);
+    expect(requirementProblems(`requests==1.0.0 \\\n    --hash=sha256:${h}0\n`, {})).toEqual([
+      'requests has no --hash',
+    ]);
+    expect(requirementProblems(`requests==1.0.0 \\\n    --hash=sha256:${'A'.repeat(64)}\n`, {})).toEqual([
+      'requests has no --hash',
+    ]);
+  });
+
   it('the Gitleaks download is checked against a checksum file kept in this repository', () => {
     const pin = config().policy.tools?.gitleaks as string;
     const sums = readFileSync(join(CONFIG_DIR, 'config', `gitleaks_${pin}_checksums.txt`), 'utf8');
@@ -282,5 +297,33 @@ describe('the release check', () => {
 
   it('the repository never commits run output', () => {
     expect(readFileSync(join(CONFIG_DIR, '.gitignore'), 'utf8')).toMatch(/^\.qa\/out\/$/m);
+  });
+});
+
+describe('scanner ignore files among the copied files', () => {
+  // isScannerControlFile already keeps these out of the copy; removing them
+  // from the copy is the second line: a repository must never take its own
+  // files out of the scan.
+  it.each([
+    ['gitleaks', removeGitleaksIgnores, '.gitleaksignore'],
+    ['semgrep', removeSemgrepIgnores, '.semgrepignore'],
+  ])('%s: removes every %s at any depth and in any case, and nothing else', (_tool, remove, name) => {
+    const dir = mkdtempSync(join(tmpdir(), 'qa-ignores-'));
+    try {
+      mkdirSync(join(dir, 'a', 'b'), { recursive: true });
+      for (const f of [name, join('a', name.toUpperCase()), join('a', 'b', name), join('a', 'keep.ts'), 'notes.md'])
+        writeFileSync(join(dir, f), 'x');
+      remove(dir);
+      const left: string[] = [];
+      const walk = (d: string, rel = ''): void => {
+        for (const e of readdirSync(join(d, rel), { withFileTypes: true }))
+          if (e.isDirectory()) walk(d, join(rel, e.name));
+          else left.push(join(rel, e.name));
+      };
+      walk(dir);
+      expect(left.sort()).toEqual([join('a', 'keep.ts'), 'notes.md'].sort());
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
