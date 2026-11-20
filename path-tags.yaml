@@ -11,6 +11,8 @@ tags:
     min_approvals: 2
     paths:
       link_core: ['src/transaction/**', 'src/database/migrations/**', 'src/jobs/**']
+      # Copy of link_core used to pilot and demo the checks: same ledger paths, so Semgrep runs there too.
+      aiqc-link_core: ['src/transaction/**', 'src/database/migrations/**', 'src/jobs/**']
 
   compliance:
     description: Screening and verification (fail-closed class)
