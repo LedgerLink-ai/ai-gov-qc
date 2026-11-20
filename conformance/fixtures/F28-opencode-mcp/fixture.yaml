@@ -1,5 +1,5 @@
 id: F28
-title: Unregistered MCP server in opencode.json
+title: Unregistered MCP server in opencode.json (its own "mcp" map, command as an array)
 repo: link_core
 actor: human
 as_of: 2027-01-08

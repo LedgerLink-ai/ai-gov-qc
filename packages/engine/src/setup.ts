@@ -544,15 +544,14 @@ export async function setup(config: Config, opts: SetupOptions, print: (s: strin
   if (opts.gitleaks && pins.gitleaks) await setupGitleaks(config, pins.gitleaks, opts, row);
   const problemsBeforeHooks = problems;
   let hooksInstalled = false;
-  if (opts.globalHooks ?? true) {
-    setupGlobalHooks(row);
-    hooksInstalled = true;
-  } else if (opts.gitTemplate && pythonOk) setupGitTemplate(row);
+  if (opts.globalHooks ?? true) hooksInstalled = setupGlobalHooks(row);
+  else if (opts.gitTemplate && pythonOk) setupGitTemplate(row);
   pathAdvice(row);
   if (problemsBeforeHooks > 0 && hooksInstalled) {
-    print(
-      '  WARN  hooks          installed anyway, but commits on this machine will NOT be scanned locally until' +
-        ' the problem(s) above are fixed; pushes still go through CI.',
+    row(
+      'WARN',
+      'hooks',
+      'installed, but the checks that need a tool marked FAIL above will not run on your commits and pushes until it is fixed and "qa setup" is run again',
     );
   }
   print(

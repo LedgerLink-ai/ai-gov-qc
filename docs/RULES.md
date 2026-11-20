@@ -195,11 +195,11 @@ A clause that forbids the action is fine, for example "Never, under any circumst
 
 ### MCP servers
 
-An MCP server in any JSON (or JSONC) file under an `ai-config`-tagged path — not a fixed list of filenames, so a new or unlisted tool's configuration is covered as soon as its path is tagged — under `mcpServers`, `servers` or `mcp.servers`, plus `.codex/config.toml`'s `[mcp_servers]` tables, must be listed as `approved` in [registry/ai-registry.yaml](../registry/ai-registry.yaml) and run at an exact approved version: `npx -y @ledgerlink/qa-mcp@0.1.0`, not `npx @ledgerlink/qa-mcp` or `@latest`. URL servers (including Gemini's `httpUrl` and Windsurf's `serverUrl`) and local commands must be registered too.
+An MCP server in any JSON (or JSONC) file under an `ai-config`-tagged path — not a fixed list of filenames, so a new or unlisted tool's configuration is covered as soon as its path is tagged — under `mcpServers`, `mcp.servers` or opencode's `mcp` (and `servers` in a file named as an MCP configuration, such as `.vscode/mcp.json`), plus `.codex/config.toml`'s `[mcp_servers]` tables, must be listed as `approved` in [registry/ai-registry.yaml](../registry/ai-registry.yaml) and run at an exact approved version: `npx -y @ledgerlink/qa-mcp@0.1.0`, not `npx @ledgerlink/qa-mcp` or `@latest`. URL servers (including Gemini's `httpUrl` and Windsurf's `serverUrl`) and local commands must be registered too.
 
 - Before the package, a runner (`npx`, `pnpm dlx` and the like) may only have `-y`, `--yes`, `--quiet` or `--silent`.
 - An `env` entry may not change where packages come from or what the runtime loads (`npm_config_*`, any name containing `REGISTRY`, `NODE_OPTIONS`, `NODE_PATH`, `PIP_INDEX_URL`, `PYTHONPATH`, `LD_PRELOAD`, `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` and similar).
-- A configuration file that is not valid JSON (or TOML for Codex) is reported, because its servers cannot be checked.
+- A configuration file that is not valid JSON (or TOML for Codex) is reported, because its servers cannot be checked. Another JSON file under an `ai-config` path is reported only if it names an MCP key.
 - An entry still `pending-inventory` once its `review_by` date has passed is treated as not approved, instead of staying a warning indefinitely.
 
 To use a new server, propose it in the registry with an owner and a review date (R14-6). Personal MCP settings outside the repository are not checked.

@@ -7,14 +7,24 @@ import type { CheckDefinition, Finding, McpServerEntry, RunContext } from '../ty
  * Any JSON (or JSONC) file is a candidate MCP configuration, not just a
  * fixed list of filenames: `ctx.filesFor(def)` already scopes this check to
  * `ai-config`-tagged paths (path-tags.yaml), and `serverMaps()` below only
- * reports something when the file actually has an `mcpServers`/`servers`/
- * `mcp.servers` shape. A tool-specific filename list would need a new entry
- * for every harness (it missed Windsurf's `serverUrl` configs); matching by
- * extension instead means a new or unlisted tool (Windsurf, opencode, Cline,
- * ...) is checked as soon as its path is tagged `ai-config`, with no engine
- * change.
+ * reports something when the file actually has an MCP server map. So a new
+ * or unlisted tool (Windsurf, opencode, Cline, ...) is checked as soon as its
+ * path is tagged `ai-config`, with no engine change.
  */
 const MCP_JSON = /\.jsonc?$/i;
+/**
+ * Files that are MCP configurations by name (Claude Code's .mcp.json, every
+ * <tool>/mcp.json, Windsurf's mcp_config.json, VS Code and Gemini settings,
+ * opencode.json). Only in these is the generic "servers" key read, and a file
+ * that cannot be parsed reported; any other JSON file under an ai-config path
+ * (a data file in context/, say) is checked only when it holds an
+ * "mcpServers" or "mcp" map, so an unrelated "servers" list is not mistaken
+ * for MCP servers.
+ */
+const MCP_CONFIG_NAME =
+  /(^|\/)(?:\.mcp\.json|mcp\.jsonc?|mcp_config\.json|\.vscode\/settings\.json|\.gemini\/settings\.json|opencode\.jsonc?)$/i;
+/** Text that names an MCP map: a file that fails to parse is reported only then. */
+const MCP_KEY_TEXT = /"(?:mcpServers|mcp|mcp\.servers)"\s*:/;
 /** Codex CLI: [mcp_servers.<name>] tables in TOML. */
 const MCP_TOML = /(^|\/)\.codex\/config\.toml$/;
 const EXACT_VERSION = /^\d+\.\d+\.\d+(?:[-+].*)?$/;
@@ -120,6 +130,29 @@ export interface ServerConfig {
   /** Windsurf's endpoint name. */
   serverUrl?: unknown;
   env?: unknown;
+  /** opencode's name for env. */
+  environment?: unknown;
+}
+
+/**
+ * opencode writes a server as { "command": ["npx", "-y", "pkg@1.0.0"],
+ * "environment": { ... } }: the command and its arguments in one array, and
+ * the variables under "environment". Both are read as command/args and env.
+ */
+function normaliseServer(cfg: ServerConfig): ServerConfig {
+  const out: ServerConfig = { ...cfg };
+  if (Array.isArray(cfg.command)) {
+    const [command, ...rest] = cfg.command as unknown[];
+    out.command = typeof command === 'string' ? command : '';
+    out.args = [...rest, ...(Array.isArray(cfg.args) ? cfg.args : [])];
+  }
+  if (cfg.environment !== undefined) {
+    const isMap = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+    // Both present: either one that is not a map is kept, so it is reported.
+    if (cfg.env === undefined || !isMap(cfg.environment)) out.env = cfg.environment;
+    else if (isMap(cfg.env)) out.env = { ...cfg.environment, ...cfg.env };
+  }
+  return out;
 }
 
 export function checkServer(
@@ -183,6 +216,7 @@ export function checkServer(
       'not-an-object',
     );
   }
+  cfg = normaliseServer(cfg);
 
   // Environment that redirects installs or injects code, whatever the server is.
   if (cfg.env !== undefined) {
@@ -506,22 +540,35 @@ export function parseCodexServers(text: string): TomlServer[] {
 
 /**
  * The server maps in a JSON configuration: "mcpServers" (Claude Code,
- * Cursor, Gemini CLI, Roo Code), "servers" (VS Code mcp.json) and VS Code
- * settings' "mcp": { "servers" } or "mcp.servers". Every key present is
- * checked, so an empty map under one key cannot hide servers under another.
+ * Cursor, Gemini CLI, Roo Code, Windsurf, Cline), "servers" (VS Code
+ * mcp.json; read only in a file named as an MCP configuration), VS Code
+ * settings' "mcp": { "servers" } or "mcp.servers", and opencode's "mcp" map of
+ * servers. Every key present is checked, so an empty map under one key cannot
+ * hide servers under another.
  */
-function serverMaps(doc: unknown): { maps: Array<Record<string, unknown>>; bad: string[] } {
+function serverMaps(doc: unknown, named: boolean): { maps: Array<Record<string, unknown>>; bad: string[] } {
   const maps: Array<Record<string, unknown>> = [];
   const bad: string[] = [];
-  if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return { maps, bad: ['(top level)'] };
+  if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return { maps, bad: named ? ['(top level)'] : [] };
   const d = doc as Record<string, unknown>;
   const mcp = d.mcp && typeof d.mcp === 'object' && !Array.isArray(d.mcp) ? (d.mcp as Record<string, unknown>) : {};
   const candidates: Array<[string, unknown]> = [
     ['mcpServers', d.mcpServers],
-    ['servers', d.servers],
+    ['servers', named ? d.servers : undefined],
     ['mcp.servers', d['mcp.servers']],
     ['mcp.servers', mcp.servers],
   ];
+  if (d.mcp !== undefined && mcp.servers === undefined) {
+    if (d.mcp === null || typeof d.mcp !== 'object' || Array.isArray(d.mcp)) {
+      if (named) bad.push('mcp');
+    } else {
+      // opencode: "mcp": { "<name>": { "type": "local", "command": [...] } }.
+      // Values that are not objects (VS Code's "inputs" list, say) are not
+      // servers: a server has to be an object to run at all.
+      const servers = Object.entries(mcp).filter(([, v]) => v !== null && typeof v === 'object' && !Array.isArray(v));
+      if (servers.length > 0) maps.push(Object.fromEntries(servers));
+    }
+  }
   for (const [key, value] of candidates) {
     if (value === undefined) continue;
     if (value === null || typeof value !== 'object' || Array.isArray(value)) bad.push(key);
@@ -574,10 +621,14 @@ export function mcpAllowlist(ctx: RunContext, def: CheckDefinition): Finding[] {
       continue;
     }
 
+    const named = MCP_CONFIG_NAME.test(file.path);
     let doc: unknown;
     try {
       doc = JSON.parse(stripJsonc(text));
     } catch {
+      // A JSON file that is not an MCP configuration by name and never
+      // mentions an MCP key is someone else's data: its syntax is not ours.
+      if (!named && !MCP_KEY_TEXT.test(text)) continue;
       findings.push(
         problem(
           file.path,
@@ -589,7 +640,7 @@ export function mcpAllowlist(ctx: RunContext, def: CheckDefinition): Finding[] {
       );
       continue;
     }
-    const { maps, bad } = serverMaps(doc);
+    const { maps, bad } = serverMaps(doc, named);
     for (const key of bad) {
       findings.push(
         problem(

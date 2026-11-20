@@ -1,6 +1,7 @@
 {
-  "mcpServers": {
-    "ledgerlink-qa": { "command": "npx", "args": ["-y", "@ledgerlink/qa-mcp@0.1.0"] },
-    "web-helper": { "command": "npx", "args": ["-y", "some-web-mcp-server@1.0.0"] }
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "ledgerlink-qa": { "type": "local", "command": ["npx", "-y", "@ledgerlink/qa-mcp@0.1.0"], "enabled": true },
+    "web-helper": { "type": "local", "command": ["npx", "-y", "some-web-mcp-server@1.0.0"], "enabled": true }
   }
 }

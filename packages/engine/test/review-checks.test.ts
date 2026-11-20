@@ -160,6 +160,71 @@ describe('mcp-allowlist: every server key is checked (H3)', () => {
   });
 });
 
+describe('mcp-allowlist: any JSON under an ai-config path, by shape', () => {
+  it.each(['.windsurf/mcp.json', '.windsurf/mcp_config.json', '.kiro/settings/mcp.json', '.claude/agents/x.json'])(
+    'reads "mcpServers" in %s',
+    (path) => {
+      expect(mcpRun({ [path]: JSON.stringify({ mcpServers: { evil: EVIL } }) }).map((x) => x.ruleId)).toEqual([
+        'unregistered',
+      ]);
+    },
+  );
+
+  it('reads opencode\'s "mcp" map, with the command as an array and "environment" for env', () => {
+    const run = (servers: object) => mcpRun({ 'opencode.json': JSON.stringify({ mcp: servers }) });
+    expect(run({ qa: { type: 'local', command: ['npx', '-y', '@ledgerlink/qa-mcp@0.1.0'] } })).toEqual([]);
+    expect(run({ qa: { type: 'remote', url: 'https://kb.internal/mcp' } })).toEqual([]);
+    expect(run({ x: { type: 'local', command: ['npx', '-y', 'evil-mcp@1.0.0'] } }).map((f) => f.ruleId)).toEqual([
+      'unregistered',
+    ]);
+    expect(run({ x: { type: 'local', command: ['npx', '-y', '@ledgerlink/qa-mcp'] } })[0].ruleId).toBe('unpinned');
+    expect(run({ x: { type: 'remote', url: 'https://evil.example/mcp' } })[0].ruleId).toBe('unregistered');
+    const env = run({
+      x: { type: 'local', command: ['npx', '-y', '@ledgerlink/qa-mcp@0.1.0'], environment: { NODE_OPTIONS: '-r x' } },
+    });
+    expect(env.map((f) => f.ruleId)).toEqual(['unsafe-env']);
+  });
+
+  it('does not mistake other JSON for MCP configuration', () => {
+    // A "servers" list or map in a data file, a file that is not JSON at
+    // all, a top-level array, and VS Code's "mcp" inputs without servers.
+    expect(mcpRun({ 'context/deploy.json': JSON.stringify({ servers: { prod: { host: 'x' } } }) })).toEqual([]);
+    expect(mcpRun({ 'context/hosts.json': JSON.stringify({ servers: ['a', 'b'] }) })).toEqual([]);
+    expect(mcpRun({ 'context/notes.json': '{ not json' })).toEqual([]);
+    expect(mcpRun({ 'context/list.json': '[1, 2]' })).toEqual([]);
+    expect(mcpRun({ '.claude/settings.json': JSON.stringify({ enabledMcpjsonServers: ['qa'], mcp: true }) })).toEqual(
+      [],
+    );
+    expect(mcpRun({ '.vscode/settings.json': JSON.stringify({ mcp: { inputs: [] } }) })).toEqual([]);
+  });
+
+  it('still reports a broken file that names an MCP key, or is an MCP configuration by name', () => {
+    expect(mcpRun({ '.windsurf/x.json': '{ "mcpServers": { "a": ' }).map((f) => f.ruleId)).toEqual(['unparseable']);
+    expect(mcpRun({ 'opencode.json': '{ "mcp": ' }).map((f) => f.ruleId)).toEqual(['unparseable']);
+    expect(mcpRun({ '.cursor/mcp.json': '{' }).map((f) => f.ruleId)).toEqual(['unparseable']);
+    expect(mcpRun({ '.cursor/mcp.json': '[]' }).map((f) => f.ruleId)).toEqual(['unparseable']);
+  });
+});
+
+describe('mcp-allowlist: review_by', () => {
+  const pending: McpServerEntry = {
+    id: 'pend',
+    status: 'pending-inventory',
+    owner: 'x',
+    review_by: '2026-11-06',
+    match: { package: 'pend-mcp', versions: ['1.0.0'] },
+  };
+  const at = (asOf?: string) =>
+    checkServer('c', '.mcp.json', 's', { command: 'npx', args: ['-y', 'pend-mcp@1.0.0'] }, [pending], 1, asOf);
+
+  it('warns until the review date, and blocks after it', () => {
+    expect([at('2026-11-01')?.ruleId, at('2026-11-01')?.level]).toEqual(['pending', 'warning']);
+    expect([at('2026-11-06')?.ruleId, at('2026-11-06')?.level]).toEqual(['pending', 'warning']);
+    expect([at('2026-11-07')?.ruleId, at('2026-11-07')?.level]).toEqual(['pending-overdue', 'error']);
+    expect(at(undefined)?.level).toBe('warning');
+  });
+});
+
 describe('mcp-allowlist: runner flags and environment (M5)', () => {
   it.each([
     ['--registry=https://evil.example', '--registry'],

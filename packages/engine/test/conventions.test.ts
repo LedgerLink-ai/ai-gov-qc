@@ -243,25 +243,60 @@ describe('checks', () => {
   it('commit.message: merges, fixups and genuine reverts are left to git', async () => {
     for (const commitMessage of [
       "Merge branch 'develop' into feature/LCORE-1-x\n",
+      "Merge branch 'develop'\n",
+      // git pull (no rebase), fetching from a URL
+      "Merge branch 'develop' of https://github.com/LedgerLink-ai/link_core into feature/LCORE-1-x\n",
+      "Merge branch 'develop' of github.com:LedgerLink-ai/link_core\n",
+      "Merge branches 'a' and 'b'\n",
+      "Merge branches 'a', 'b' and 'c' into develop\n",
+      "Merge remote-tracking branch 'origin/develop' into feature/LCORE-1-x\n",
+      "Merge tag 'v1.2.0'\n",
+      "Merge commit 'abc1234'\n",
+      "Merge branch 'a', remote-tracking branch 'origin/b'\n",
+      'Merge https://github.com/LedgerLink-ai/link_core\n',
+      'Merge pull request #12 from LedgerLink-ai/feature/LCORE-1-x\n\nfeat(LCORE-1): x\n',
+      "Merge branch 'feature/LCORE-1-x' into 'develop'\n", // GitLab
+      "Merge branch 'develop' into feature/LCORE-1-x\n\n# Conflicts:\n#\tsrc/a.ts\n",
       'fixup! feat(LCORE-1): x\n',
       'Revert "feat(LCORE-1): x"\n\nThis reverts commit 1234567890abcdef1234567890abcdef12345678.\n',
+      // reverting a merge, and GitHub's Revert button on a merged pull request
+      'Revert "Merge pull request #12 from org/x"\n\nThis reverts commit 1234567890abcdef1234567890abcdef12345678, reversing\nchanges made to 0000000000abcdef1234567890abcdef12345678.\n',
+      // reverting a revert (git 2.43+), and a SHA-256 repository
+      'Reapply "feat(LCORE-1): x"\n\nThis reverts commit 1234567890abcdef1234567890abcdef12345678.\n',
+      `Revert "feat(LCORE-1): x"\n\nThis reverts commit ${'ab'.repeat(32)}.\n`,
     ])
       expect((await findings({ branch: 'feature/LCORE-1-x', commitMessage })).found).toEqual([]);
   });
 
-  it('commit.message: a hand-typed "Revert" without git\'s trailer is not exempt', async () => {
-    const commitMessage = 'Revert "feat(LCORE-1): x"\n';
-    expect((await findings({ branch: 'feature/LCORE-1-x', commitMessage })).found).toEqual([
-      ['commit.message', 'format', true],
-    ]);
-  });
+  it.each([
+    'Revert "feat(LCORE-1): x"\n',
+    'Revert "feat(LCORE-1): x"\n\nThis reverts commit 1234567.\n',
+    'Revert "feat(LCORE-1): x"\n\n# This reverts commit 1234567890abcdef1234567890abcdef12345678.\n',
+    'Reapply "feat(LCORE-1): x"\n',
+  ])(
+    'commit.message: a hand-typed revert without git\'s full "This reverts commit" line is not exempt: %j',
+    async (commitMessage) => {
+      expect((await findings({ branch: 'feature/LCORE-1-x', commitMessage })).found).toEqual([
+        ['commit.message', 'format', true],
+      ]);
+    },
+  );
 
-  it('commit.message: a hand-typed "Merge ..." subject that is not git\'s exact shape is not exempt', async () => {
-    const commitMessage = "Merge branch 'main': actually add a backdoor\n";
-    expect((await findings({ branch: 'feature/LCORE-1-x', commitMessage })).found).toEqual([
-      ['commit.message', 'format', true],
-    ]);
-  });
+  it.each([
+    "Merge branch 'main': actually add a backdoor\n",
+    "Merge branch 'a' into b: add a backdoor\n",
+    "Merge branch 'a' of url extra\n",
+    'Merge stuff\n',
+    'Merge pull request #12 from org/x and more\n',
+    "Merge branch ''\n",
+  ])(
+    'commit.message: a hand-typed "Merge ..." subject that is not git\'s shape is not exempt: %j',
+    async (commitMessage) => {
+      expect((await findings({ branch: 'feature/LCORE-1-x', commitMessage })).found).toEqual([
+        ['commit.message', 'format', true],
+      ]);
+    },
+  );
 
   it('commit.message: without a branch (CI, --commit-msg-file) only the form and project are checked', async () => {
     expect((await findings({ commitMessage: 'feat(LWMNG-1): x\n' })).found).toEqual([]);
