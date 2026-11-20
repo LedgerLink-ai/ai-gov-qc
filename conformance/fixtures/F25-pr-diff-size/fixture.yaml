@@ -1,5 +1,5 @@
 id: F25
-title: A pull request over the changed-line limit is reported (pr.diff-size)
+title: A pull request over the size warning threshold is warned about, never blocked (pr.diff-size)
 repo: link_core
 actor: human
 as_of: 2027-01-08

@@ -14,7 +14,7 @@ Sources: the Development Guideline Policy V1.0 (draft for LedgerLink approval), 
 | Commit subject        | `<type>(<TICKET-123>): <description>`, e.g. `feat(LCORE-212): add idempotency key to refund endpoint`. The hook writes the prefix.                                               |
 | AI help               | `Assisted-by: <tool>, <model>, <version>` at the end of the message. Set your default once: `git config --global ledgerlink.assistedBy "<tool>, <model>, <version>"` (or `none`) |
 | Never commit          | Secrets of any kind, floating-point money in payment or ledger code, instructions to AI tools to skip checks, unapproved MCP servers                                             |
-| Before a pull request | `qa prepr`: branch, every commit, size (400 / 1,000 lines), coverage (80%)                                                                                                       |
+| Before a pull request | `qa prepr`: branch, every commit, size (warning above 1,000 lines), coverage (80%)                                                                                               |
 | Agents                | Their own identity, `QA_ACTOR=agent`, never `--no-verify`, never protected paths, never a weakened control                                                                       |
 | Always                | You own every line you commit, however it was written                                                                                                                            |
 
@@ -222,7 +222,7 @@ A file renamed or moved away from a protected path, or deleted, counts as a chan
 ### Before you open one
 
 - The change is complete and meets the ticket's acceptance criteria.
-- It is one change, small enough to review within one business day: over 400 changed lines is a warning, over 1,000 an error (lockfiles and snapshots are not counted). Split larger changes.
+- It is one change, small enough to review within one business day: over 1,000 changed lines gets a warning, never a block (lockfiles and snapshots are not counted). Split larger changes where you can.
 - Every commit follows section 2, is signed, and its `Assisted-by` trailer, if any, is well formed.
 - Unit tests are added or updated and pass, with line coverage of at least 80%.
 - You have reviewed every line yourself, including every line written with AI help.

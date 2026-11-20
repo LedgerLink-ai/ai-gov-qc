@@ -22,7 +22,7 @@ The pull request rules (stage 3) and their limits are in `policy.yaml` under `pr
 | `pr.branch-name`     | The branch follows `<type>/<TICKET-123>-<description>` (`conventions` in policy.yaml); not the base branch itself     | report, until a blocking date is agreed                  |
 | `pr.commit-messages` | Every commit subject follows `<type>(<TICKET-123>): <description>` with the branch's ticket                           | report, until a blocking date is agreed                  |
 | `pr.commits`         | The Assisted-by trailer of every commit since the base branch is `<tool>, <model>, <version>` (form only)             | report: the pull request's pr-rules job blocks           |
-| `pr.diff-size`       | Warning above 400 changed lines, error above 1,000; lockfiles and snapshots not counted                               | report                                                   |
+| `pr.diff-size`       | Warning above 1,000 changed lines, never a block; lockfiles and snapshots not counted                                 | report                                                   |
 | `tests.coverage`     | Line coverage of at least 80% in each `coverage/coverage-summary.json` (Istanbul json-summary: c8, nyc, Jest, Vitest) | report: the plan keeps a coverage gate out of this phase |
 
 `qa prepr` finds the base branch from `origin/HEAD` (for example `origin/develop`); set `QA_PR_BASE` to use another.

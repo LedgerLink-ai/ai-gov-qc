@@ -97,7 +97,7 @@ The rules every branch, commit and pull request follows, and what AI agents may 
 | Commit subject        | `<type>(<TICKET-123>): <description>`; the hook writes the prefix from the branch                                                |
 | AI help               | `Assisted-by: <tool>, <model>, <version>`; set a default once with `git config --global ledgerlink.assistedBy "..."` (or `none`) |
 | Never commit          | Secrets, floating-point money in payment or ledger code, instructions to AI tools to weaken a control, unapproved MCP servers    |
-| Before a pull request | `qa prepr`: branch, every commit, size (400 / 1,000 lines) and coverage (80%)                                                    |
+| Before a pull request | `qa prepr`: branch, every commit, size (warning above 1,000 lines) and coverage (80%)                                            |
 | AI agents             | Their own identity, `QA_ACTOR=agent`, every hook run, no protected paths                                                         |
 
 When a check stops a commit, the first line of its output says what was found and where; [docs/RULES.md](docs/RULES.md#6-when-a-check-stops-you) says what to do.

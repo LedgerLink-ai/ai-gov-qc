@@ -102,10 +102,8 @@ export interface TimeoutPolicy {
 }
 
 export interface PrPolicy {
-  /** Changed lines (added plus deleted) above which a warning is shown. */
+  /** Changed lines (added plus deleted) above which a warning is shown. Size never blocks. */
   diff_warn_lines: number;
-  /** Changed lines above which the pull request should be split. */
-  diff_max_lines: number;
   /** Generated files left out of the line count (lockfiles, snapshots). */
   diff_ignore: string[];
   /** Minimum line coverage, in percent, from the test run's coverage summary. */

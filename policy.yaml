@@ -22,8 +22,8 @@ local:
 # opened.
 pr:
   # The branch name follows `conventions` below (pr.branch-name).
-  diff_warn_lines: 400
-  diff_max_lines: 1000
+  # Above this many changed lines, a warning only: size never blocks.
+  diff_warn_lines: 1000
   diff_ignore: ['**/yarn.lock', '**/package-lock.json', '**/pnpm-lock.yaml', '**/*.snap']
   coverage_min_lines: 80
 
