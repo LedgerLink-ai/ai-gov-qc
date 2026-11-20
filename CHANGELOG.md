@@ -310,6 +310,12 @@ Docs
 - `qa setup` on Windows: an argument ending in a backslash (a directory
   path) that needed quoting is now escaped correctly, instead of risking
   the following argument being swallowed into it.
+- `qa setup`: a file in the qa hooks folder that is not qa's own (for
+  example a hand-written `pre-commit`) is still left alone, but setup now
+  reports `FAIL` naming it and does not set git's global `core.hooksPath`.
+  It used to report the hooks connected, and git then ran that file instead
+  of qa in every repository, so no checks ran. `qa doctor` already reported
+  this case.
 - `qa setup`: when a global hook install proceeds despite an earlier `FAIL`
   (gitleaks or the Python tools), the summary now warns that the checks
   needing that tool will not run on commits and pushes until it is fixed.

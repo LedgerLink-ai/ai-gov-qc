@@ -16,7 +16,15 @@ import { versionIn } from './adapters/tools/workdir';
 import { envMs } from './exec';
 import { assertSafeUrl, fetchWithRetry } from './net';
 import { redact } from './redact';
-import { globalHooksDir, removeHookScripts, sameDir, writeHookScripts } from './hooks';
+import {
+  globalHooksDir,
+  hookScriptsInstalled,
+  MANAGED_MARKER,
+  QA_HOOKS,
+  removeHookScripts,
+  sameDir,
+  writeHookScripts,
+} from './hooks';
 import { binDir, isWindows, qaHome, toolBinary, venvDir, venvProgram } from './tools-home';
 import type { Config } from './types';
 
@@ -447,6 +455,24 @@ function setupGlobalHooks(row: Row): boolean {
     writeHookScripts(dir);
   } catch (err) {
     row('FAIL', 'global hooks', `could not write ${dir}: ${(err as Error).message}`);
+    return false;
+  }
+  // writeHookScripts leaves a file there that is not qa's alone. Where that file
+  // is a QA hook, git would run it instead of qa in every repository: say so,
+  // and do not point core.hooksPath at the folder.
+  if (!hookScriptsInstalled(dir)) {
+    const notOurs = QA_HOOKS.filter((h) => {
+      try {
+        return !readFileSync(join(dir, h), 'utf8').includes(MANAGED_MARKER);
+      } catch {
+        return true;
+      }
+    }).map((h) => join(dir, h));
+    row(
+      'FAIL',
+      'global hooks',
+      `${notOurs.join(', ')} ${notOurs.length === 1 ? 'is' : 'are'} not qa's; left as ${notOurs.length === 1 ? 'it is' : 'they are'}, so the qa hooks were not connected. Move ${notOurs.length === 1 ? 'it' : 'them'} aside and run "qa setup" again`,
+    );
     return false;
   }
   const set = run('git', ['config', '--global', 'core.hooksPath', dir.split('\\').join('/')]);
