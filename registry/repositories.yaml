@@ -36,3 +36,5 @@ repositories:
     enabled: true
   - name: link_wallet_manager
     enabled: true
+  - name: aiqc-link_core
+    enabled: true

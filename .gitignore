@@ -4,3 +4,4 @@ coverage/
 .qa/out/
 *.log
 out/
+pip/
