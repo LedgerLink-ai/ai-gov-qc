@@ -1,5 +1,14 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { runHook, type HookDeps } from '../src/hooks';
@@ -91,7 +100,9 @@ const optedIn: HookDeps['gateExit'] = () => undefined;
 
 beforeEach(() => {
   saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
-  root = mkdtempSync(join(tmpdir(), 'qa-run-hook-'));
+  // The real path: git reports it, and the temp folder may be a link (/var -> /private/var on
+  // macOS) or a short name (C:\Users\RUNNER~1 on Windows runners).
+  root = realpathSync.native(mkdtempSync(join(tmpdir(), 'qa-run-hook-')));
   repo = join(root, 'repo');
   mkdirSync(repo);
   log = join(root, 'pre-commit.json');
