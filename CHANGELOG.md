@@ -310,6 +310,27 @@ Docs
 - `qa setup` on Windows: an argument ending in a backslash (a directory
   path) that needed quoting is now escaped correctly, instead of risking
   the following argument being swallowed into it.
+- `qa setup`: a file in the qa hooks folder that is not qa's own (for
+  example a hand-written `pre-commit`) is still left alone, but setup now
+  reports `FAIL` naming it and does not set git's global `core.hooksPath`.
+  It used to report the hooks connected, and git then ran that file instead
+  of qa in every repository, so no checks ran. `qa doctor` already reported
+  this case.
+- `qa prepare-commit-msg` and `qa commit-msg`, called directly (husky, or a
+  repository's own `.pre-commit-config.yaml`), no longer refuse the commit
+  (exit 2) when qa's configuration cannot be found or read: they warn and
+  let it through, as the global hooks already did. `qa precommit`,
+  `qa prepush`, `qa check` and CI still stop on it.
+- `qa setup`: a program that runs past its time limit (pip on a slow
+  network) is now stopped together with everything it started, instead of
+  leaving pip's subprocesses running.
+- `qa setup` checks the Python requirements file more strictly: a
+  `--hash` that is only in a comment, or not exactly 64 lowercase hex
+  characters, no longer counts as one (pip's `--require-hashes` was and is
+  the real enforcement).
+- `ai-config.mcp-allowlist`: removing JSONC trailing commas no longer
+  changes `,]` or `,}` inside a string value (an MCP server argument or
+  environment value).
 - `qa setup`: when a global hook install proceeds despite an earlier `FAIL`
   (gitleaks or the Python tools), the summary now warns that the checks
   needing that tool will not run on commits and pushes until it is fixed.

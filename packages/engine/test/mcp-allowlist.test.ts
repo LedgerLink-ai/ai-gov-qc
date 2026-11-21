@@ -20,6 +20,16 @@ describe('MCP config parsing', () => {
     expect(JSON.parse(stripJsonc(text))).toEqual({ a: 'http://x//y', b: [1] });
   });
 
+  it('leaves ",]" and ",}" inside string values as they are', () => {
+    const text = '{ "args": ["--only=a,]", "x,}"], "env": { "Q": "\\",]" }, }';
+    expect(JSON.parse(stripJsonc(text))).toEqual({ args: ['--only=a,]', 'x,}'], env: { Q: '",]' } });
+  });
+
+  it('removes a trailing comma with a comment or line break before the bracket', () => {
+    const text = '{ "a": [1, // last one\n], "b": { "c": 2, /* end */ }, }';
+    expect(JSON.parse(stripJsonc(text))).toEqual({ a: [1], b: { c: 2 } });
+  });
+
   it('parses scoped and unscoped package specs', () => {
     expect(parsePackageSpec('@ledgerlink/qa-mcp@1.4.0')).toEqual({ name: '@ledgerlink/qa-mcp', version: '1.4.0' });
     expect(parsePackageSpec('@ledgerlink/qa-mcp')).toEqual({ name: '@ledgerlink/qa-mcp' });

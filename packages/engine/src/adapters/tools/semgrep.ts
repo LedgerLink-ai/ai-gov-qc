@@ -1,6 +1,4 @@
 import { spawnSync } from 'node:child_process';
-import { readdirSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
 import { runProcess, scrubbedEnv, ToolTimeoutError } from '../../exec';
 import { redact } from '../../redact';
 import {
@@ -13,7 +11,15 @@ import {
 } from '../../types';
 import type { ToolAdapter } from './index';
 import { toolBinary } from '../../tools-home';
-import { cachedVersion, hashFiles, listRuleFiles, versionIn, withCheckedFiles, PROBE_TIMEOUT_MS } from './workdir';
+import {
+  cachedVersion,
+  hashFiles,
+  listRuleFiles,
+  removeFilesNamed,
+  versionIn,
+  withCheckedFiles,
+  PROBE_TIMEOUT_MS,
+} from './workdir';
 
 interface SemgrepResult {
   check_id: string;
@@ -54,11 +60,7 @@ const version = cachedVersion(() => {
  * its built-in default ignores (dependencies, build output, test directories).
  */
 export function removeIgnoreFiles(dir: string): void {
-  for (const e of readdirSync(dir, { withFileTypes: true })) {
-    const full = join(dir, e.name);
-    if (e.isDirectory()) removeIgnoreFiles(full);
-    else if (e.name.toLowerCase() === '.semgrepignore') rmSync(full, { force: true });
-  }
+  removeFilesNamed(dir, '.semgrepignore');
 }
 
 /**

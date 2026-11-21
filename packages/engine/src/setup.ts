@@ -13,10 +13,18 @@ import {
 import { tmpdir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { versionIn } from './adapters/tools/workdir';
-import { envMs } from './exec';
+import { envMs, runProcess } from './exec';
 import { assertSafeUrl, fetchWithRetry } from './net';
 import { redact } from './redact';
-import { globalHooksDir, removeHookScripts, sameDir, writeHookScripts } from './hooks';
+import {
+  globalHooksDir,
+  hookScriptsInstalled,
+  MANAGED_MARKER,
+  QA_HOOKS,
+  removeHookScripts,
+  sameDir,
+  writeHookScripts,
+} from './hooks';
 import { binDir, isWindows, qaHome, toolBinary, venvDir, venvProgram } from './tools-home';
 import type { Config } from './types';
 
@@ -60,28 +68,41 @@ const PIP_TIMEOUT_MS = 30 * 60_000;
 const COMMAND_TIMEOUT_MS = 120_000;
 
 /**
- * Runs a command. `out` is redacted, for messages; `raw` is the output itself,
- * for values qa reads and acts on (versions, git configuration paths), which
- * redaction must not change.
+ * What running a command gave. `out` is redacted, for messages; `raw` is the
+ * output itself, for values qa reads and acts on (versions, git configuration
+ * paths), which redaction must not change.
  */
-function run(
-  cmd: string,
-  args: string[],
-  show = false,
-  timeout = COMMAND_TIMEOUT_MS,
-): { ok: boolean; out: string; raw: string } {
-  const res = spawnSync(cmd, args, { encoding: 'utf8', stdio: show ? 'inherit' : 'pipe', timeout, windowsHide: true });
-  const timedOut = (res.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT';
-  const out = `${res.stdout ?? ''}${res.stderr ?? ''}`.trim();
-  return {
-    ok: !res.error && res.status === 0,
-    out: redact(timedOut ? `${cmd} did not finish within ${Math.round(timeout / 1000)} s. ${out}` : out),
-    raw: out,
-  };
+export interface RunnerResult {
+  ok: boolean;
+  out: string;
+  raw: string;
 }
 
-const versionOf = (cmd: string, args: string[]): string | undefined => {
-  const r = run(cmd, args);
+/** Runs a program for setup; `show` passes its output through instead of capturing it. Tests pass their own. */
+export type Runner = (
+  cmd: string,
+  args: string[],
+  opts?: { show?: boolean; timeoutMs?: number },
+) => Promise<RunnerResult>;
+
+/**
+ * The real runner: runProcess, so there is no shell, and a program that runs
+ * past its time limit is stopped with everything it started (pip starts
+ * build subprocesses; stopping pip alone would leave them running).
+ */
+export const runCommand: Runner = async (cmd, args, opts = {}) => {
+  const timeout = opts.timeoutMs ?? COMMAND_TIMEOUT_MS;
+  const res = await runProcess(cmd, args, { timeoutMs: timeout, inherit: opts.show });
+  const out = `${res.stdout}${res.stderr}`.trim();
+  return {
+    ok: !res.error && !res.timedOut && res.status === 0,
+    out: redact(res.timedOut ? `${cmd} did not finish within ${Math.round(timeout / 1000)} s. ${out}` : out),
+    raw: out,
+  };
+};
+
+const versionOf = async (run: Runner, cmd: string, args: string[]): Promise<string | undefined> => {
+  const r = await run(cmd, args);
   return r.ok ? versionIn(r.raw) : undefined;
 };
 
@@ -103,16 +124,18 @@ export function pyLauncherVersions(listing: string): string[] {
  * A Python to create the private environment with: the newest one the pinned
  * tools support, else (with supported: false) the newest 3.11 or later.
  */
-function findPython(): { cmd: string; args: string[]; version: string; supported: boolean } | undefined {
+async function findPython(
+  run: Runner,
+): Promise<{ cmd: string; args: string[]; version: string; supported: boolean } | undefined> {
   const candidates: Array<[string, string[]]> = [];
   if (isWindows) {
-    const listed = run('py', ['--list']);
+    const listed = await run('py', ['--list']);
     if (listed.ok) for (const v of pyLauncherVersions(listed.raw)) candidates.push(['py', [v]]);
     candidates.push(['python', []], ['python3', []]);
   } else candidates.push(['python3', []], ['python', []]);
   let newer: { cmd: string; args: string[]; version: string; supported: boolean } | undefined;
   for (const [cmd, args] of candidates) {
-    const r = run(cmd, [...args, '-c', 'import sys; print("%d.%d.%d" % sys.version_info[:3])']);
+    const r = await run(cmd, [...args, '-c', 'import sys; print("%d.%d.%d" % sys.version_info[:3])']);
     const v = r.ok ? versionIn(r.raw) : undefined;
     if (!v) continue;
     const [major, minor] = v.split('.').map(Number);
@@ -152,22 +175,35 @@ export function requirementProblems(text: string, pins: Record<string, string>):
     if (v !== pins[tool])
       problems.push(`${tool} is ${v ?? 'missing'} in python-requirements.txt, ${pins[tool]} in policy.yaml`);
   }
-  // Every requirement line must carry at least one hash.
+  // Every requirement must carry at least one hash: a real option, not one in
+  // a comment, and exactly the 64 lowercase hex characters pip writes.
   const blocks = text.split(/\n(?=[A-Za-z0-9])/).filter((b) => /^[A-Za-z0-9]/.test(b));
+  const withoutComments = (b: string): string =>
+    b
+      .split('\n')
+      .map((line) => line.replace(/(^|\s)#.*$/, ''))
+      .join('\n');
   for (const b of blocks)
-    if (!/--hash=sha256:[0-9a-f]{64}/.test(b)) problems.push(`${b.split(/[ =]/)[0]} has no --hash`);
+    if (!/--hash=sha256:[0-9a-f]{64}(?![0-9A-Za-z])/.test(withoutComments(b)))
+      problems.push(`${b.split(/[ =]/)[0]} has no --hash`);
   return problems;
 }
 
-function setupPython(config: Config, pins: Record<string, string>, row: Row): boolean {
+export async function setupPython(
+  config: Config,
+  pins: Record<string, string>,
+  row: Row,
+  run: Runner = runCommand,
+): Promise<boolean> {
   const wanted = ['pre-commit', 'semgrep'].filter((t) => pins[t]);
-  const current = (t: string): string | undefined => versionOf(venvProgram(t), ['--version']);
-  if (wanted.every((t) => current(t) === pins[t])) {
+  const current = (t: string): Promise<string | undefined> => versionOf(run, venvProgram(t), ['--version']);
+  const before = await Promise.all(wanted.map(current));
+  if (wanted.every((t, i) => before[i] === pins[t])) {
     for (const t of wanted) row('ok', t, `${pins[t]} (${venvDir()})`);
     writeLaunchers(wanted);
     return true;
   }
-  const python = findPython();
+  const python = await findPython(run);
   const range = `3.${PYTHON_MINORS.min} to 3.${PYTHON_MINORS.max}`;
   if (!python) {
     row('FAIL', 'python', `Python ${range} not found; install it from python.org, then run "qa setup" again`);
@@ -180,11 +216,11 @@ function setupPython(config: Config, pins: Record<string, string>, row: Row): bo
   );
   // An environment left by an earlier run on an unsupported Python (for
   // example 3.15, where Semgrep's pywin32 pin has no build) is made again.
-  const venvMinor = Number(versionOf(venvProgram('python'), ['--version'])?.split('.')[1]);
+  const venvMinor = Number((await versionOf(run, venvProgram('python'), ['--version']))?.split('.')[1]);
   if (venvMinor > PYTHON_MINORS.max || venvMinor < PYTHON_MINORS.min)
     rmSync(venvDir(), { recursive: true, force: true });
   if (!existsSync(venvProgram('python'))) {
-    const r = run(python.cmd, [...python.args, '-m', 'venv', venvDir()]);
+    const r = await run(python.cmd, [...python.args, '-m', 'venv', venvDir()]);
     if (!r.ok) {
       row('FAIL', 'python venv', `could not create ${venvDir()}: ${r.out.slice(0, 300)}`);
       return false;
@@ -206,7 +242,7 @@ function setupPython(config: Config, pins: Record<string, string>, row: Row): bo
   process.stdout.write(
     `Installing ${specs.join(', ')} into ${venvDir()}, hash-checked (a few minutes the first time)\n`,
   );
-  const pip = run(
+  const pip = await run(
     venvProgram('python'),
     [
       '-m',
@@ -223,8 +259,7 @@ function setupPython(config: Config, pins: Record<string, string>, row: Row): bo
       '-r',
       lock,
     ],
-    true,
-    PIP_TIMEOUT_MS,
+    { show: true, timeoutMs: PIP_TIMEOUT_MS },
   );
   if (!pip.ok) {
     row(
@@ -236,7 +271,7 @@ function setupPython(config: Config, pins: Record<string, string>, row: Row): bo
   }
   let ok = true;
   for (const t of wanted) {
-    const v = current(t);
+    const v = await current(t);
     row(v === pins[t] ? 'ok' : 'FAIL', t, v ? `${v} (${venvDir()})` : 'not installed');
     ok &&= v === pins[t];
   }
@@ -261,9 +296,15 @@ export function expectedChecksum(checksums: string, asset: string): string | und
   return undefined;
 }
 
-async function setupGitleaks(config: Config, pin: string, opts: SetupOptions, row: Row): Promise<boolean> {
+export async function setupGitleaks(
+  config: Config,
+  pin: string,
+  opts: SetupOptions,
+  row: Row,
+  run: Runner = runCommand,
+): Promise<boolean> {
   const target = join(binDir(), isWindows ? 'gitleaks.exe' : 'gitleaks');
-  if (versionOf(target, ['version']) === pin) {
+  if ((await versionOf(run, target, ['version'])) === pin) {
     row('ok', 'gitleaks', `${pin} (${target})`);
     return true;
   }
@@ -321,7 +362,7 @@ async function setupGitleaks(config: Config, pin: string, opts: SetupOptions, ro
     // Windows, name it: Git Bash puts GNU tar first on PATH, which reads
     // "C:\..." as a remote host and cannot open zip files.
     const tar = isWindows ? join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe') : 'tar';
-    const r = run(tar, ['-xf', file, '-C', work]);
+    const r = await run(tar, ['-xf', file, '-C', work]);
     const exe = join(work, isWindows ? 'gitleaks.exe' : 'gitleaks');
     if (!r.ok || !existsSync(exe)) {
       row('FAIL', 'gitleaks', `could not unpack ${asset}: ${r.out.slice(0, 300)}`);
@@ -333,13 +374,13 @@ async function setupGitleaks(config: Config, pin: string, opts: SetupOptions, ro
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
-  const v = versionOf(target, ['version']);
+  const v = await versionOf(run, target, ['version']);
   row(v === pin ? 'ok' : 'FAIL', 'gitleaks', v ? `${v} (${target}, SHA-256 checked)` : 'installed but does not run');
   return v === pin;
 }
 
-function setupGitTemplate(row: Row): boolean {
-  const current = run('git', ['config', '--global', '--get', 'init.templateDir']);
+async function setupGitTemplate(row: Row, run: Runner): Promise<boolean> {
+  const current = await run('git', ['config', '--global', '--get', 'init.templateDir']);
   const preCommit = toolBinary('pre-commit');
   if (current.ok && current.raw) {
     const dir = current.raw.replace(/^~(?=[\\/])/, process.env.USERPROFILE ?? process.env.HOME ?? '~');
@@ -351,7 +392,7 @@ function setupGitTemplate(row: Row): boolean {
     else if (byPreCommit('pre-commit')) {
       // A template pre-commit made earlier, with an older hook list (without
       // prepare-commit-msg or commit-msg): bring it up to date.
-      const init = run(preCommit, ['init-templatedir', ...HOOK_TYPES.flatMap((h) => ['-t', h]), dir]);
+      const init = await run(preCommit, ['init-templatedir', ...HOOK_TYPES.flatMap((h) => ['-t', h]), dir]);
       row(
         init.ok ? 'ok' : 'FAIL',
         'git template',
@@ -366,19 +407,19 @@ function setupGitTemplate(row: Row): boolean {
     return true;
   }
   const dir = join(qaHome(), 'git-template');
-  const init = run(preCommit, ['init-templatedir', ...HOOK_TYPES.flatMap((h) => ['-t', h]), dir]);
+  const init = await run(preCommit, ['init-templatedir', ...HOOK_TYPES.flatMap((h) => ['-t', h]), dir]);
   if (!init.ok) {
     row('FAIL', 'git template', `pre-commit init-templatedir failed: ${init.out.slice(0, 300)}`);
     return false;
   }
-  const set = run('git', ['config', '--global', 'init.templateDir', dir.split('\\').join('/')]);
+  const set = await run('git', ['config', '--global', 'init.templateDir', dir.split('\\').join('/')]);
   row(set.ok ? 'ok' : 'FAIL', 'git template', set.ok ? `${dir}: new clones connect the hooks` : set.out);
   return set.ok;
 }
 
 /** A global git setting as it is (not redacted): qa compares it with its own paths. Redact it to print it. */
-const globalGet = (key: string): string | undefined => {
-  const r = run('git', ['config', '--global', '--get', key]);
+const globalGet = async (run: Runner, key: string): Promise<string | undefined> => {
+  const r = await run('git', ['config', '--global', '--get', key]);
   return r.ok && r.raw ? r.raw : undefined;
 };
 
@@ -432,7 +473,7 @@ export const describeHooksPath = (s: HooksPathSetting): string =>
  * alone and setup stops; after writing, the value git actually uses is read
  * back, so an include that overrides qa's is caught.
  */
-function setupGlobalHooks(row: Row): boolean {
+async function setupGlobalHooks(row: Row, run: Runner): Promise<boolean> {
   const dir = globalHooksDir();
   const foreign = hooksPathSettings().filter((s) => !sameDir(s.value, dir));
   if (foreign.length > 0) {
@@ -449,7 +490,25 @@ function setupGlobalHooks(row: Row): boolean {
     row('FAIL', 'global hooks', `could not write ${dir}: ${(err as Error).message}`);
     return false;
   }
-  const set = run('git', ['config', '--global', 'core.hooksPath', dir.split('\\').join('/')]);
+  // writeHookScripts leaves a file there that is not qa's alone. Where that file
+  // is a QA hook, git would run it instead of qa in every repository: say so,
+  // and do not point core.hooksPath at the folder.
+  if (!hookScriptsInstalled(dir)) {
+    const notOurs = QA_HOOKS.filter((h) => {
+      try {
+        return !readFileSync(join(dir, h), 'utf8').includes(MANAGED_MARKER);
+      } catch {
+        return true;
+      }
+    }).map((h) => join(dir, h));
+    row(
+      'FAIL',
+      'global hooks',
+      `${notOurs.join(', ')} ${notOurs.length === 1 ? 'is' : 'are'} not qa's; left as ${notOurs.length === 1 ? 'it is' : 'they are'}, so the qa hooks were not connected. Move ${notOurs.length === 1 ? 'it' : 'them'} aside and run "qa setup" again`,
+    );
+    return false;
+  }
+  const set = await run('git', ['config', '--global', 'core.hooksPath', dir.split('\\').join('/')]);
   if (!set.ok) {
     row('FAIL', 'global hooks', `git config --global core.hooksPath failed: ${set.out.slice(0, 300)}`);
     return false;
@@ -471,10 +530,10 @@ function setupGlobalHooks(row: Row): boolean {
     `${dir}: every repository on this machine; QA runs only in opted-in LedgerLink-ai repositories`,
   );
   // The git template an earlier "qa setup" made is not needed any more.
-  const tpl = globalGet('init.templateDir');
+  const tpl = await globalGet(run, 'init.templateDir');
   const ownTemplate = join(qaHome(), 'git-template');
   if (tpl && sameDir(tpl, ownTemplate)) {
-    run('git', ['config', '--global', '--unset', 'init.templateDir']);
+    await run('git', ['config', '--global', '--unset', 'init.templateDir']);
     rmSync(ownTemplate, { recursive: true, force: true });
     row('ok', 'git template', `removed ${ownTemplate}: the global hooks replace it`);
   } else if (tpl) {
@@ -493,12 +552,12 @@ function setupGlobalHooks(row: Row): boolean {
 }
 
 /** "qa setup --uninstall": removes the global hooks, if they are qa's. */
-export function uninstallGlobalHooks(print: (s: string) => void): number {
+export async function uninstallGlobalHooks(print: (s: string) => void, run: Runner = runCommand): Promise<number> {
   const dir = globalHooksDir();
-  const current = globalGet('core.hooksPath');
+  const current = await globalGet(run, 'core.hooksPath');
   print(`qa setup --uninstall: hooks in ${dir}`);
   if (current && sameDir(current, dir)) {
-    const unset = run('git', ['config', '--global', '--unset', 'core.hooksPath']);
+    const unset = await run('git', ['config', '--global', '--unset', 'core.hooksPath']);
     if (!unset.ok) {
       print(`  FAIL  global hooks   git config --global --unset core.hooksPath failed: ${unset.out.slice(0, 300)}`);
       return 1;
@@ -526,8 +585,13 @@ function pathAdvice(row: Row): void {
   row('WARN', 'PATH', `add ${dir} to PATH so husky and your shell find pre-commit, semgrep and gitleaks: ${how}`);
 }
 
-export async function setup(config: Config, opts: SetupOptions, print: (s: string) => void): Promise<number> {
-  if (opts.uninstall) return uninstallGlobalHooks(print);
+export async function setup(
+  config: Config,
+  opts: SetupOptions,
+  print: (s: string) => void,
+  run: Runner = runCommand,
+): Promise<number> {
+  if (opts.uninstall) return uninstallGlobalHooks(print, run);
   const pins = config.policy.tools ?? {};
   let problems = 0;
   const row: Row = (status, name, detail) => {
@@ -537,15 +601,15 @@ export async function setup(config: Config, opts: SetupOptions, print: (s: strin
   print(`qa setup: tools into ${qaHome()}`);
   const node = process.versions.node;
   row(Number(node.split('.')[0]) >= 20 ? 'ok' : 'FAIL', 'node', node);
-  const git = versionOf('git', ['--version']);
+  const git = await versionOf(run, 'git', ['--version']);
   row(git ? 'ok' : 'FAIL', 'git', git ?? 'not found; install git first');
 
-  const pythonOk = opts.python ? setupPython(config, pins, row) : true;
-  if (opts.gitleaks && pins.gitleaks) await setupGitleaks(config, pins.gitleaks, opts, row);
+  const pythonOk = opts.python ? await setupPython(config, pins, row, run) : true;
+  if (opts.gitleaks && pins.gitleaks) await setupGitleaks(config, pins.gitleaks, opts, row, run);
   const problemsBeforeHooks = problems;
   let hooksInstalled = false;
-  if (opts.globalHooks ?? true) hooksInstalled = setupGlobalHooks(row);
-  else if (opts.gitTemplate && pythonOk) setupGitTemplate(row);
+  if (opts.globalHooks ?? true) hooksInstalled = await setupGlobalHooks(row, run);
+  else if (opts.gitTemplate && pythonOk) await setupGitTemplate(row, run);
   pathAdvice(row);
   if (problemsBeforeHooks > 0 && hooksInstalled) {
     row(

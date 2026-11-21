@@ -1368,7 +1368,16 @@ export async function main(argv: string[]): Promise<number> {
     const message = redact((err as Error).message);
     if (err instanceof UsageError) log.error('usage.error', { error: message }, `${message}\nRun "qa help" for usage.`);
     else if (err instanceof InputError) log.error('input.refused', { error: message }, `refused: ${message}`);
-    else if (err instanceof ConfigError)
+    else if (err instanceof ConfigError && LOCAL_HOOK_COMMANDS.has(argv[0] ?? '')) {
+      // A configuration qa cannot find or read is qa's own problem: the message
+      // hooks report it and let the commit through; CI still runs the checks.
+      log.warn(
+        'config.error',
+        { error: message, command: argv[0] },
+        `configuration error: ${message}; the ${argv[0]} checks were skipped`,
+      );
+      return 0;
+    } else if (err instanceof ConfigError)
       log.error('config.error', { error: message }, `configuration error: ${message}`);
     else log.error('engine.error', { error: message }, `engine error: ${message}`);
     return 2;

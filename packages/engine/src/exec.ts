@@ -22,6 +22,8 @@ export interface ProcessOptions {
   timeoutMs?: number;
   /** Bytes kept from each of stdout and stderr; the rest is dropped. */
   maxBuffer?: number;
+  /** Pass stdout and stderr straight through to this process's (nothing is captured), e.g. pip's progress. */
+  inherit?: boolean;
 }
 
 /** A program that ran past its time limit. */
@@ -102,7 +104,7 @@ export function runProcess(cmd: string, args: string[], opts: ProcessOptions = {
         shell: false,
         windowsHide: true,
         detached: process.platform !== 'win32',
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: opts.inherit ? ['ignore', 'inherit', 'inherit'] : ['ignore', 'pipe', 'pipe'],
       });
     } catch (err) {
       finish({ status: null, error: err as Error });

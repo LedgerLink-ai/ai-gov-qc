@@ -13,6 +13,20 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import type { ChangedFile, RunContext } from '../../types';
 
+/**
+ * Removes every file called `name` (any case) under dir. A scanner's ignore
+ * file (.gitleaksignore, .semgrepignore) among the copied files would let the
+ * repository take its own files out of the scan.
+ */
+export function removeFilesNamed(dir: string, name: string): void {
+  const wanted = name.toLowerCase();
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, e.name);
+    if (e.isDirectory()) removeFilesNamed(full, name);
+    else if (e.name.toLowerCase() === wanted) rmSync(full, { force: true });
+  }
+}
+
 /** Time limit for asking a tool its version. */
 export const PROBE_TIMEOUT_MS = 30_000;
 

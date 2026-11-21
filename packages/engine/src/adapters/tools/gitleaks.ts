@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runProcess, scrubbedEnv, ToolTimeoutError } from '../../exec';
@@ -15,7 +15,7 @@ import {
 } from '../../types';
 import type { ToolAdapter } from './index';
 import { toolBinary } from '../../tools-home';
-import { cachedVersion, hashFiles, versionIn, withCheckedFiles, PROBE_TIMEOUT_MS } from './workdir';
+import { cachedVersion, hashFiles, removeFilesNamed, versionIn, withCheckedFiles, PROBE_TIMEOUT_MS } from './workdir';
 
 export interface GitleaksResult {
   RuleID: string;
@@ -141,11 +141,7 @@ async function runGitleaks(def: CheckDefinition, ctx: RunContext, args: string[]
  * files.
  */
 export function removeIgnoreFiles(dir: string): void {
-  for (const e of readdirSync(dir, { withFileTypes: true })) {
-    const full = join(dir, e.name);
-    if (e.isDirectory()) removeIgnoreFiles(full);
-    else if (e.name.toLowerCase() === '.gitleaksignore') rmSync(full, { force: true });
-  }
+  removeFilesNamed(dir, '.gitleaksignore');
 }
 
 /**
